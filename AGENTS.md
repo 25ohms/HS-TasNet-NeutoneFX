@@ -6,7 +6,7 @@ This repository uses an AI agent to help set up and maintain a clean, reproducib
 
 - `src/`
   - currently contains: `export_hs_tasnet.py` (exports a `.nm` file from a pretrained checkpoint)
-- `models/`
+- `artifacts/`
   - stores checkpoints (weights). Treat it as a cache/artifact directory, not a source directory.
 - `README.md`
   - explains the purpose of why the author is making this repo (anything regarding documentation and setup, please add it below what already exists)
@@ -97,14 +97,14 @@ The agent should converge towards a layout like:
 │   ├── test_shapes.py            # quick forward shape checks
 │   ├── test_streaming.py         # stateful inference behavior
 │   └── test_export.py
-├── models/                       # checkpoints only (gitignored or selective)
+├── artifacts/                       # checkpoints only (gitignored or selective)
 ├── runs/                         # logs, checkpoints, artifacts (gitignored)
 └── .github/workflows/ci.yml
 
 ```
 
 Guidelines:
-- `models/` remains the checkpoint storage directory (do not commit large files).
+- `artifacts/` remains the checkpoint storage directory (do not commit large files).
 - `runs/` contains experiment outputs (logs, saved configs, checkpoints).
 - Keep the current `src/export_hs_tasnet.py` working; a wrapper entrypoint is acceptable.
 
@@ -202,7 +202,7 @@ Provide an explicit stateful wrapper:
 - Keep the ability to export from a pretrained checkpoint into `.nm`.
 - The agent may refactor `export_hs_tasnet.py`, but must preserve:
   - existing CLI behavior (or provide a compatibility wrapper)
-  - ability to load checkpoints from `models/`
+  - ability to load checkpoints from `artifacts/`
 
 ---
 
@@ -256,10 +256,10 @@ Also:
 ## Security / safety and artifact handling
 
 - Do not commit large checkpoints.
-- Add `models/` and `runs/` to `.gitignore` by default, with guidance on how to store artifacts.
+- Add `artifacts/` and `runs/` to `.gitignore` by default, with guidance on how to store artifacts.
 - If a checkpoint download feature is added, it must:
   - verify hashes when possible
-  - store to `models/` or `~/.cache/hs_tasnet/`
+  - store to `artifacts/` or `~/.cache/hs_tasnet/`
 
 ---
 
@@ -270,7 +270,7 @@ A change is complete when:
 - `hs-tasnet eval` loads a checkpoint and reports metrics
 - `hs-tasnet infer` produces 4 stems for an input file
 - streaming wrapper can process hop-by-hop without crashing
-- export script works with checkpoints in `models/`
+- export script works with checkpoints in `artifacts/`
 - tests pass in CI
 - configs and docs exist for typical workflows
 

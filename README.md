@@ -46,7 +46,7 @@ Offline inference:
 ```bash
 hs-tasnet infer --cfg src/hs_tasnet/config/infer.yaml \
   --override infer.input_path=path/to/audio.wav \
-  --override infer.checkpoint=models/hs_tasnet.pt
+  --override infer.checkpoint=artifacts/hs_tasnet.pt
 ```
 
 Export (Neutone):
@@ -65,5 +65,5 @@ hs-tasnet train --cfg src/hs_tasnet/config/train.yaml --override train.batch_siz
 
 ## Artifacts
 
-- `models/` stores checkpoints (do not commit large files).
+- `artifacts/` stores checkpoints (do not commit large files).
 - `runs/` stores logs, configs, and checkpoints for each run.
