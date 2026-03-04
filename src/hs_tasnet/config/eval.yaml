@@ -1,0 +1,8 @@
+base: defaults.yaml
+
+eval:
+  checkpoint: null
+  batch_size: 4
+
+data:
+  tiny_dataset: true

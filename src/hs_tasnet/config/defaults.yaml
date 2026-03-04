@@ -1,0 +1,70 @@
+seed: 42
+
+run:
+  id: null
+  dir: runs
+
+device:
+  name: "cuda"
+  use_amp: false
+
+logging:
+  tensorboard: true
+  wandb:
+    enabled: false
+    project: "hs-tasnet"
+    entity: null
+
+model:
+  sample_rate: 44100
+  audio_channels: 1
+  num_stems: 4
+  stems: ["drums", "bass", "vocals", "other"]
+  window_size: 1024
+  hop_size: 512
+  enc_channels: 64
+  lstm_hidden: 128
+  lstm_layers: 2
+  fusion: "concat"  # concat | sum
+  mask_activation: "sigmoid"
+
+data:
+  sample_rate: 44100
+  audio_channels: 1
+  num_stems: 4
+  stems: ["drums", "bass", "vocals", "other"]
+  segment_seconds: 4.0
+  train_dir: null
+  val_dir: null
+  num_workers: 2
+  pin_memory: true
+  prefetch_factor: 2
+  tiny_dataset: true
+
+train:
+  batch_size: 4
+  epochs: 5
+  lr: 1e-3
+  grad_accum_steps: 1
+  log_every: 10
+  val_every: 1
+  ckpt_every: 1
+  max_steps: null
+
+val:
+  batch_size: 4
+
+eval:
+  checkpoint: null
+  batch_size: 4
+
+infer:
+  checkpoint: null
+  input_path: null
+  output_dir: "runs/infer"
+  segment_seconds: 10.0
+
+export:
+  checkpoint: null
+  output_dir: "export_hs_tasnet"
+  trace_len: 2048

@@ -1,0 +1,6 @@
+base: defaults.yaml
+
+export:
+  checkpoint: null
+  output_dir: "export_hs_tasnet"
+  trace_len: 2048

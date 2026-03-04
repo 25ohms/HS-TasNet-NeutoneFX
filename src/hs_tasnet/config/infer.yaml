@@ -1,0 +1,6 @@
+base: defaults.yaml
+
+infer:
+  input_path: null
+  output_dir: "runs/infer"
+  segment_seconds: 10.0

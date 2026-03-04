@@ -1,0 +1,23 @@
+# Python
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+*.egg-info/
+.venv/
+
+# Builds
+build/
+dist/
+
+# Artifacts
+models/
+runs/
+
+# Logs
+*.log
+
+# OS
+.DS_Store
+
+AGENTS.md
