@@ -29,6 +29,7 @@ model:
   mask_activation: "sigmoid"
 
 data:
+  loader: "wav"  # wav | musdb
   sample_rate: 44100
   audio_channels: 1
   num_stems: 4
@@ -36,6 +37,10 @@ data:
   segment_seconds: 4.0
   train_dir: null
   val_dir: null
+  musdb_root: null
+  musdb_is_wav: false
+  musdb_val_subset: "test"   # "test" or "train"
+  musdb_val_split: "valid"   # used only when musdb_val_subset="train"
   num_workers: 2
   pin_memory: true
   prefetch_factor: 2

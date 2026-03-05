@@ -8,7 +8,7 @@ import torch
 from torch.utils.data import DataLoader
 
 from hs_tasnet.data.collate import collate_examples
-from hs_tasnet.data.datasets import AudioStemDataset, TinySyntheticDataset
+from hs_tasnet.data.datasets import AudioStemDataset, MusdbStemDataset, TinySyntheticDataset
 from hs_tasnet.losses.waveform import l1_loss
 from hs_tasnet.models.hs_tasnet import HSTasNet, HSTasNetConfig
 from hs_tasnet.train.checkpointing import load_checkpoint, save_checkpoint
@@ -23,6 +23,27 @@ from hs_tasnet.utils.seed import set_seed
 def _build_dataset(cfg: Dict, split: str):
     data_cfg = cfg.get("data", {})
     segment_samples = int(data_cfg.get("segment_seconds", 4.0) * data_cfg.get("sample_rate", 44100))
+    loader = data_cfg.get("loader", "wav")
+    if loader == "musdb":
+        musdb_root = data_cfg.get("musdb_root")
+        if not musdb_root:
+            raise ValueError("data.musdb_root must be set for loader=musdb")
+        if split == "train":
+            subset = "train"
+            split_name = "train"
+        else:
+            subset = data_cfg.get("musdb_val_subset", "test")
+            split_name = data_cfg.get("musdb_val_split", "valid") if subset == "train" else None
+        return MusdbStemDataset(
+            root=musdb_root,
+            subset=subset,
+            split=split_name,
+            stems=data_cfg.get("stems", ["drums", "bass", "vocals", "other"]),
+            segment_samples=segment_samples,
+            sample_rate=data_cfg.get("sample_rate", 44100),
+            audio_channels=data_cfg.get("audio_channels", 1),
+            is_wav=bool(data_cfg.get("musdb_is_wav", False)),
+        )
     if data_cfg.get("tiny_dataset", False) or not data_cfg.get(f"{split}_dir"):
         return TinySyntheticDataset(
             length=8 if split == "train" else 4,
