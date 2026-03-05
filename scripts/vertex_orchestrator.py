@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import argparse
+import os
 from typing import List
 
 from google.cloud import aiplatform
@@ -9,14 +10,14 @@ from google.cloud import aiplatform
 
 def main() -> None:
     parser = argparse.ArgumentParser()
-    parser.add_argument("--project", required=True)
-    parser.add_argument("--region", required=True)
-    parser.add_argument("--staging-bucket", required=True, help="gs://bucket/staging")
-    parser.add_argument("--container-uri", required=True)
-    parser.add_argument("--model-serving-container", required=True)
+    parser.add_argument("--project", default=None)
+    parser.add_argument("--region", default=None)
+    parser.add_argument("--staging-bucket", default=None, help="gs://bucket/staging")
+    parser.add_argument("--container-uri", default=None)
+    parser.add_argument("--model-serving-container", default=None)
     parser.add_argument("--job-display-name", default="hs-tasnet-train")
     parser.add_argument("--model-display-name", default="hs-tasnet-model")
-    parser.add_argument("--base-output-dir", required=True, help="gs://bucket/model-artifacts")
+    parser.add_argument("--base-output-dir", default=None, help="gs://bucket/model-artifacts")
     parser.add_argument("--machine-type", default="g2-standard-4")
     parser.add_argument("--accelerator-type", default="NVIDIA_L4")
     parser.add_argument("--accelerator-count", type=int, default=1)
@@ -24,21 +25,46 @@ def main() -> None:
     parser.add_argument("--service-account", default=None)
     parser.add_argument("--network", default=None)
     parser.add_argument("--cfg", default="src/hs_tasnet/config/train.yaml")
-    parser.add_argument("--dataset-uri", required=True, help="gs://bucket/musdb18")
+    parser.add_argument("--dataset-uri", default=None, help="gs://bucket/musdb18")
     parser.add_argument("--gcs-runs-uri", default=None)
     parser.add_argument("--override", action="append")
     args = parser.parse_args()
 
-    aiplatform.init(
-        project=args.project,
-        location=args.region,
-        staging_bucket=args.staging_bucket,
+    project = args.project or os.environ.get("PROJECT_ID")
+    region = args.region or os.environ.get("REGION")
+    staging_bucket = args.staging_bucket or os.environ.get("STAGING_BUCKET")
+    container_uri = args.container_uri or os.environ.get("CONTAINER_URI")
+    model_serving_container = args.model_serving_container or os.environ.get(
+        "MODEL_SERVING_CONTAINER"
     )
+    base_output_dir = args.base_output_dir or os.environ.get("BASE_OUTPUT_DIR")
+    dataset_uri = args.dataset_uri or os.environ.get("DATASET_URI")
+    service_account = args.service_account or os.environ.get("SERVICE_ACCOUNT")
+    network = args.network or os.environ.get("NETWORK")
+
+    missing = [
+        name
+        for name, value in [
+            ("PROJECT_ID", project),
+            ("REGION", region),
+            ("STAGING_BUCKET", staging_bucket),
+            ("CONTAINER_URI", container_uri),
+            ("MODEL_SERVING_CONTAINER", model_serving_container),
+            ("BASE_OUTPUT_DIR", base_output_dir),
+            ("DATASET_URI", dataset_uri),
+        ]
+        if not value
+    ]
+    if missing:
+        missing_str = ", ".join(missing)
+        raise SystemExit(f"Missing required values (set flags or env): {missing_str}")
+
+    aiplatform.init(project=project, location=region, staging_bucket=staging_bucket)
 
     job = aiplatform.CustomContainerTrainingJob(
         display_name=args.job_display_name,
-        container_uri=args.container_uri,
-        model_serving_container_image_uri=args.model_serving_container,
+        container_uri=container_uri,
+        model_serving_container_image_uri=model_serving_container,
     )
 
     worker_args: List[str] = [
@@ -47,7 +73,7 @@ def main() -> None:
         "--cfg",
         args.cfg,
         "--dataset-uri",
-        args.dataset_uri,
+        dataset_uri,
     ]
 
     if args.gcs_runs_uri:
@@ -63,9 +89,9 @@ def main() -> None:
         machine_type=args.machine_type,
         accelerator_type=args.accelerator_type,
         accelerator_count=args.accelerator_count,
-        base_output_dir=args.base_output_dir,
-        service_account=args.service_account,
-        network=args.network,
+        base_output_dir=base_output_dir,
+        service_account=service_account,
+        network=network,
         args=worker_args,
     )
 
