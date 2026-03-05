@@ -67,3 +67,62 @@ hs-tasnet train --cfg src/hs_tasnet/config/train.yaml --override train.batch_siz
 
 - `artifacts/` stores checkpoints (do not commit large files).
 - `runs/` stores logs, configs, and checkpoints for each run.
+
+## GCP VM Orchestration
+
+The repo includes scripts to bootstrap a VM and submit training jobs using a GCS bucket.
+
+Example:
+
+```bash
+export GCS_BUCKET=gs://your-bucket
+scripts/gcp_submit_train.sh
+```
+
+Common overrides:
+
+```bash
+export EXTRA_OVERRIDES=$'train.batch_size=4\ntrain.epochs=5'
+export SYNC_MODE=rsync  # or mount if gcsfuse is installed
+scripts/gcp_submit_train.sh
+```
+
+Config preset for VM paths:
+
+```bash
+hs-tasnet train --cfg src/hs_tasnet/config/gcp.yaml
+```
+
+## Vertex AI Custom Jobs
+
+Submit a training job from an orchestrator VM using Vertex AI (SDK-based orchestration):
+
+```bash
+python scripts/vertex_orchestrator.py \
+  --project your-project \
+  --region us-central1 \
+  --staging-bucket gs://your-bucket/staging \
+  --container-uri us-central1-docker.pkg.dev/your-project/your-repo/hs-tasnet:latest \
+  --model-serving-container us-docker.pkg.dev/vertex-ai/prediction/pytorch-gpu.2-0:latest \
+  --base-output-dir gs://your-bucket/model-artifacts \
+  --dataset-uri gs://your-bucket/musdb18
+```
+
+The worker container downloads the dataset from GCS, runs training, and writes the final checkpoint to `AIP_MODEL_DIR` so Vertex AI can register it in the Model Registry.
+
+Build and push the training image to Artifact Registry:
+
+```bash
+export PROJECT_ID=your-project
+export REGION=us-central1
+export REPO=your-repo
+export IMAGE_NAME=hs-tasnet
+export TAG=latest
+scripts/vertex_build_push.sh
+```
+
+Manual worker pool spec template (for `gcloud ai custom-jobs create`):
+
+```
+scripts/vertex_worker_pool.json
+```

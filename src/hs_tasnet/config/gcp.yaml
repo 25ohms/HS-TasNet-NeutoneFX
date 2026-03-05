@@ -1,0 +1,9 @@
+base: defaults.yaml
+
+run:
+  dir: /mnt/runs
+
+data:
+  train_dir: /mnt/data/musdb18/train
+  val_dir: /mnt/data/musdb18/test
+  tiny_dataset: false

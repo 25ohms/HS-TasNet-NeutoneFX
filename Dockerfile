@@ -9,9 +9,10 @@ WORKDIR /app
 COPY pyproject.toml README.md ./
 COPY src ./src
 COPY tests ./tests
+COPY scripts ./scripts
 
 RUN python -m pip install --upgrade pip \
-    && pip install -e ".[dev]"
+    && pip install -e ".[dev,gcp]"
 
 FROM base AS test
 RUN ruff check .

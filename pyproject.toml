@@ -25,6 +25,10 @@ dev = [
   "pytest>=7.4",
   "ruff>=0.4",
 ]
+gcp = [
+  "google-cloud-storage>=2.16",
+  "google-cloud-aiplatform>=1.56",
+]
 
 [project.scripts]
 hs-tasnet = "hs_tasnet.cli.main:main"
