@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import pathlib
 from typing import Dict
+
 import torch
 
 from hs_tasnet.models.hs_tasnet import HSTasNet, HSTasNetConfig
