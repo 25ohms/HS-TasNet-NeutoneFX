@@ -3,9 +3,46 @@ from __future__ import annotations
 
 import argparse
 import os
+import subprocess
 from typing import List
 
 from google.cloud import aiplatform
+import google.auth
+
+
+def _preflight_identity() -> None:
+    creds, adc_project = google.auth.default()
+    quota_project = getattr(creds, "quota_project_id", None) or os.environ.get(
+        "GOOGLE_CLOUD_QUOTA_PROJECT"
+    )
+
+    identity = None
+    if hasattr(creds, "service_account_email"):
+        identity = getattr(creds, "service_account_email")
+
+    if not identity:
+        try:
+            identity = (
+                subprocess.check_output(
+                    [
+                        "gcloud",
+                        "auth",
+                        "list",
+                        "--filter=status:ACTIVE",
+                        "--format=value(account)",
+                    ],
+                    stderr=subprocess.DEVNULL,
+                    text=True,
+                )
+                .strip()
+                or None
+            )
+        except Exception:
+            identity = None
+
+    print("ADC project:", adc_project or "unknown")
+    print("ADC identity:", identity or "unknown (user creds may hide email)")
+    print("ADC quota project:", quota_project or "not set")
 
 
 def main() -> None:
@@ -59,6 +96,7 @@ def main() -> None:
         missing_str = ", ".join(missing)
         raise SystemExit(f"Missing required values (set flags or env): {missing_str}")
 
+    _preflight_identity()
     aiplatform.init(project=project, location=region, staging_bucket=staging_bucket)
 
     job = aiplatform.CustomContainerTrainingJob(
