@@ -2,8 +2,6 @@ from __future__ import annotations
 
 import pathlib
 from typing import Dict
-
-import numpy as np
 import torch
 
 from hs_tasnet.models.hs_tasnet import HSTasNet, HSTasNetConfig

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from argparse import Namespace
+
 from torch.utils.data import DataLoader
 
 from hs_tasnet.data.collate import collate_examples
@@ -29,7 +30,6 @@ def _build_dataset(cfg):
         segment_samples=segment_samples,
         sample_rate=data_cfg.get("sample_rate", 44100),
     )
-
 
 def run(args: Namespace) -> None:
     logger = setup_logger()
