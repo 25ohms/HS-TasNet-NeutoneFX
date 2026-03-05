@@ -68,7 +68,10 @@ class HSTasNet(nn.Module):
         )
         self.fusion = Fusion(self.cfg.fusion, self.cfg.enc_channels, spec_channels)
         self.memory_blocks = nn.ModuleList(
-            [MemoryLSTMBlock(fused_channels, self.cfg.lstm_hidden) for _ in range(self.cfg.lstm_layers)]
+            [
+                MemoryLSTMBlock(fused_channels, self.cfg.lstm_hidden)
+                for _ in range(self.cfg.lstm_layers)
+            ]
         )
         self.mask_head = MaskHead(
             fused_channels,

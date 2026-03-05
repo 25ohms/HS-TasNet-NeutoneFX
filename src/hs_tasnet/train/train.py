@@ -85,8 +85,13 @@ def train(cfg: Dict, resume: Optional[str] = None) -> pathlib.Path:
         start_epoch = ckpt.get("epoch", 0)
         global_step = ckpt.get("step", 0)
 
-    writer = init_tensorboard(run_dir / "tb") if cfg.get("logging", {}).get("tensorboard", True) else None
-    scaler = torch.cuda.amp.GradScaler(enabled=cfg.get("device", {}).get("use_amp", False) and device.type == "cuda")
+    if cfg.get("logging", {}).get("tensorboard", True):
+        writer = init_tensorboard(run_dir / "tb")
+    else:
+        writer = None
+    scaler = torch.cuda.amp.GradScaler(
+        enabled=cfg.get("device", {}).get("use_amp", False) and device.type == "cuda"
+    )
 
     epochs = cfg.get("train", {}).get("epochs", 1)
     grad_accum = cfg.get("train", {}).get("grad_accum_steps", 1)
@@ -115,7 +120,11 @@ def train(cfg: Dict, resume: Optional[str] = None) -> pathlib.Path:
                     scheduler.step()
 
             if global_step % log_every == 0:
-                logger.info("train loss=%.4f", loss.item() * grad_accum, extra={"step": global_step})
+                logger.info(
+                    "train loss=%.4f",
+                    loss.item() * grad_accum,
+                    extra={"step": global_step},
+                )
                 if writer:
                     writer.add_scalar("train/loss", loss.item() * grad_accum, global_step)
 
@@ -130,7 +139,15 @@ def train(cfg: Dict, resume: Optional[str] = None) -> pathlib.Path:
                 writer.add_scalar("val/l1", metrics["l1"], global_step)
 
         if (epoch + 1) % ckpt_every == 0:
-            save_checkpoint(run_dir / f"checkpoint_epoch{epoch+1}.pt", model, optimizer, scheduler, epoch + 1, global_step, cfg)
+            save_checkpoint(
+                run_dir / f"checkpoint_epoch{epoch+1}.pt",
+                model,
+                optimizer,
+                scheduler,
+                epoch + 1,
+                global_step,
+                cfg,
+            )
 
         if max_steps and global_step >= max_steps:
             break

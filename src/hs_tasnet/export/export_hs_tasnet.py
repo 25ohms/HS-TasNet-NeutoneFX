@@ -23,7 +23,12 @@ def _lazy_import_neutone():
         from neutone_sdk.utils import save_neutone_model  # type: ignore
     except Exception as exc:  # pragma: no cover - optional dependency
         raise RuntimeError("neutone_sdk is required for export") from exc
-    return WaveformToWaveformBase, NeutoneParameter, ContinuousNeutoneParameter, save_neutone_model
+    return (
+        WaveformToWaveformBase,
+        NeutoneParameter,
+        ContinuousNeutoneParameter,
+        save_neutone_model,
+    )
 
 
 class HSTasNetCore(nn.Module):
@@ -32,15 +37,34 @@ class HSTasNetCore(nn.Module):
         self.model = model
 
     def forward(self, audio: Tensor) -> Tensor:
-        recon_audio, _ = self.model(audio, auto_curtail_length_to_multiple=False, return_aux=True)
+        recon_audio, _ = self.model(
+            audio, auto_curtail_length_to_multiple=False, return_aux=True
+        )
         return recon_audio  # [B, S, T]
 
 
 class HSTasNetWrapper:
-    def __init__(self, model: nn.Module, segment_len: int, sample_rate: int, num_sources: int, audio_channels: int):
-        WaveformToWaveformBase, NeutoneParameter, ContinuousNeutoneParameter, _ = _lazy_import_neutone()
+    def __init__(
+        self,
+        model: nn.Module,
+        segment_len: int,
+        sample_rate: int,
+        num_sources: int,
+        audio_channels: int,
+    ):
+        WaveformToWaveformBase, NeutoneParameter, ContinuousNeutoneParameter, _ = (
+            _lazy_import_neutone()
+        )
+
         class _Wrapper(WaveformToWaveformBase):
-            def __init__(self, model: nn.Module, segment_len: int, sample_rate: int, num_sources: int, audio_channels: int):
+            def __init__(
+                self,
+                model: nn.Module,
+                segment_len: int,
+                sample_rate: int,
+                num_sources: int,
+                audio_channels: int,
+            ):
                 super().__init__(model)
                 self.segment_len = segment_len
                 self.sample_rate = sample_rate
@@ -109,7 +133,9 @@ class HSTasNetWrapper:
                     x = F.pad(x, (0, pad))
 
                 y, _ = self.model(x.unsqueeze(0))  # [1, S, T]
-                gains = tr.stack([params["s1"], params["s2"], params["s3"], params["s4"]]).view(1, self.num_sources, 1)
+                gains = tr.stack(
+                    [params["s1"], params["s2"], params["s3"], params["s4"]]
+                ).view(1, self.num_sources, 1)
                 gains = gains.clamp(min=0)
                 gains = gains / (gains.sum() + 1e-8)
 
@@ -117,13 +143,19 @@ class HSTasNetWrapper:
                 y = y[..., :n]
                 return y.squeeze(0)
 
-        self.wrapper = _Wrapper(model, segment_len, sample_rate, num_sources, audio_channels)
+        self.wrapper = _Wrapper(
+            model, segment_len, sample_rate, num_sources, audio_channels
+        )
 
     def get(self):
         return self.wrapper
 
 
-def load_hs_tasnet(trace_len: int = 2048, cfg: HSTasNetConfig | None = None, checkpoint: str | None = None):
+def load_hs_tasnet(
+    trace_len: int = 2048,
+    cfg: HSTasNetConfig | None = None,
+    checkpoint: str | None = None,
+):
     model = HSTasNet(cfg or HSTasNetConfig())
     if checkpoint:
         load_checkpoint(checkpoint, model, map_location="cpu")
@@ -154,12 +186,14 @@ def export_from_cfg(cfg_path: str, overrides: list[str] | None = None) -> None:
     checkpoint = export_cfg.get("checkpoint")
     output_dir = export_cfg.get("output_dir", "export_hs_tasnet")
 
-    WaveformToWaveformBase, NeutoneParameter, ContinuousNeutoneParameter, save_neutone_model = _lazy_import_neutone()
+    _, _, _, save_neutone_model = _lazy_import_neutone()
 
     traced, segment_len, sample_rate, num_sources, audio_channels = load_hs_tasnet(
         trace_len=trace_len, cfg=model_cfg, checkpoint=checkpoint
     )
-    wrapper = HSTasNetWrapper(traced, segment_len, sample_rate, num_sources, audio_channels)
+    wrapper = HSTasNetWrapper(
+        traced, segment_len, sample_rate, num_sources, audio_channels
+    )
     save_neutone_model(wrapper.get(), pathlib.Path(output_dir), dump_samples=True, submission=True)
 
 
@@ -174,12 +208,14 @@ def main():
         export_from_cfg(args.cfg)
         return
 
-    WaveformToWaveformBase, NeutoneParameter, ContinuousNeutoneParameter, save_neutone_model = _lazy_import_neutone()
+    _, _, _, save_neutone_model = _lazy_import_neutone()
     trace_len = args.trace_len or 2048
     output_dir = args.output or "export_hs_tasnet"
 
     traced, segment_len, sample_rate, num_sources, audio_channels = load_hs_tasnet(trace_len)
-    wrapper = HSTasNetWrapper(traced, segment_len, sample_rate, num_sources, audio_channels)
+    wrapper = HSTasNetWrapper(
+        traced, segment_len, sample_rate, num_sources, audio_channels
+    )
     save_neutone_model(wrapper.get(), pathlib.Path(output_dir), dump_samples=True, submission=True)
 
 

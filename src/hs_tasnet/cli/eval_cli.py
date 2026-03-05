@@ -1,8 +1,6 @@
 from __future__ import annotations
 
 from argparse import Namespace
-
-import torch
 from torch.utils.data import DataLoader
 
 from hs_tasnet.data.collate import collate_examples

@@ -3,7 +3,7 @@ from __future__ import annotations
 import logging
 import sys
 from datetime import datetime
-from typing import Any, Dict, Optional
+from typing import Any, Dict
 
 import yaml
 
@@ -13,7 +13,7 @@ class _StructuredFormatter(logging.Formatter):
         ts = datetime.fromtimestamp(record.created).strftime("%Y-%m-%d %H:%M:%S")
         base = f"{ts} | {record.levelname:<7} | {record.getMessage()}"
         if record.__dict__.get("step") is not None:
-            base += f" | step={record.__dict__["step"]}"
+            base += f" | step={record.__dict__['step']}"
         return base
 
 
