@@ -27,7 +27,7 @@ class HSTasNetConfig:
     stems: List[str] | None = None
     window_size: int = 1024
     hop_size: int = 512
-    enc_channels: int = 64
+    enc_channels: int = 1024
     lstm_hidden: int = 128
     lstm_layers: int = 2
     fusion: str = "concat"
