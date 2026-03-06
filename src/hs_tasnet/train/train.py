@@ -78,7 +78,6 @@ def train(cfg: Dict, resume: Optional[str] = None) -> pathlib.Path:
 
     num_workers = cfg.get("data", {}).get("num_workers", 2)
     loader_kwargs = dict(
-        train_ds,
         batch_size=cfg.get("train", {}).get("batch_size", 4),
         shuffle=True,
         num_workers=num_workers,
@@ -87,7 +86,7 @@ def train(cfg: Dict, resume: Optional[str] = None) -> pathlib.Path:
     )
     if num_workers > 0:
         loader_kwargs["prefetch_factor"] = cfg.get("data", {}).get("prefetch_factor", 2)
-    loader = DataLoader(**loader_kwargs)
+    loader = DataLoader(train_ds, **loader_kwargs)
     val_loader = DataLoader(
         val_ds,
         batch_size=cfg.get("val", {}).get("batch_size", 4),
