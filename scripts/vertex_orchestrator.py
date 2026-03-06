@@ -1,12 +1,12 @@
 #!/usr/bin/env python
 from __future__ import annotations
 
-import google.auth
 import argparse
 import os
 import subprocess
 from typing import List
 
+import google.auth
 from google.cloud import aiplatform
 
 
