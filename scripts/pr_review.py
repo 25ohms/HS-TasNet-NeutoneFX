@@ -328,7 +328,7 @@ def format_finding(finding: dict[str, Any]) -> str:
 def render_markdown(result: dict[str, Any], pr_number: int, model: str) -> str:
     header = [
         COMMENT_MARKER,
-        f"## HS-TasNet PR Review",
+        "## HS-TasNet PR Review",
         f"PR: #{pr_number}",
         f"Model: `{model}`",
         f"Overall risk: `{result['overall_risk']}`",
