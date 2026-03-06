@@ -4,6 +4,7 @@ from __future__ import annotations
 import argparse
 import os
 import shutil
+import tempfile
 from pathlib import Path
 from typing import List
 
@@ -33,6 +34,51 @@ def _latest_checkpoint(run_dir: Path) -> Path:
     if not checkpoints:
         raise FileNotFoundError(f"No checkpoints found in {run_dir}")
     return checkpoints[-1]
+
+
+def _is_gcs_uri(path: str | None) -> bool:
+    return bool(path and path.startswith("gs://"))
+
+
+def _write_model_artifacts(run_dir: Path, latest_checkpoint: Path, output_dir: str | None) -> None:
+    if not output_dir:
+        output_path = Path("/tmp/aip_model")
+        output_path.mkdir(parents=True, exist_ok=True)
+        shutil.copy2(latest_checkpoint, output_path / "model.pt")
+        config_path = run_dir / "config.yaml"
+        if config_path.exists():
+            shutil.copy2(config_path, output_path / "config.yaml")
+        return
+
+    if _is_gcs_uri(output_dir):
+        with tempfile.TemporaryDirectory(prefix="hs_tasnet_model_") as tmp_dir:
+            tmp_path = Path(tmp_dir)
+            shutil.copy2(latest_checkpoint, tmp_path / "model.pt")
+            config_path = run_dir / "config.yaml"
+            if config_path.exists():
+                shutil.copy2(config_path, tmp_path / "config.yaml")
+            sync_local_to_gcs(tmp_path, output_dir)
+        return
+
+    output_path = Path(output_dir)
+    output_path.mkdir(parents=True, exist_ok=True)
+    shutil.copy2(latest_checkpoint, output_path / "model.pt")
+    config_path = run_dir / "config.yaml"
+    if config_path.exists():
+        shutil.copy2(config_path, output_path / "config.yaml")
+
+
+def _write_run_artifacts(run_dir: Path, output_dir: str | None) -> None:
+    if not output_dir:
+        return
+
+    if _is_gcs_uri(output_dir):
+        sync_local_to_gcs(run_dir, output_dir)
+        return
+
+    output_path = Path(output_dir)
+    output_path.mkdir(parents=True, exist_ok=True)
+    shutil.copytree(run_dir, output_path, dirs_exist_ok=True)
 
 
 def main() -> None:
@@ -68,18 +114,13 @@ def main() -> None:
 
     run_dir = train(cfg, resume=args.resume)
 
-    model_dir = Path(os.environ.get("AIP_MODEL_DIR", "/tmp/aip_model"))
-    model_dir.mkdir(parents=True, exist_ok=True)
-
     latest = _latest_checkpoint(run_dir)
-    shutil.copy2(latest, model_dir / "model.pt")
-
-    config_path = run_dir / "config.yaml"
-    if config_path.exists():
-        shutil.copy2(config_path, model_dir / "config.yaml")
+    _write_model_artifacts(run_dir, latest, os.environ.get("AIP_MODEL_DIR"))
 
     if args.gcs_runs_uri:
-        sync_local_to_gcs(run_dir, f"{args.gcs_runs_uri.rstrip('/')}/{run_id}")
+        _write_run_artifacts(run_dir, f"{args.gcs_runs_uri.rstrip('/')}/{run_id}")
+    else:
+        _write_run_artifacts(run_dir, os.environ.get("AIP_CHECKPOINT_DIR"))
 
 
 if __name__ == "__main__":
