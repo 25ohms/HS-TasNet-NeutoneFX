@@ -121,6 +121,13 @@ export TAG=latest
 scripts/vertex_build_push.sh
 ```
 
+Optional: choose a CUDA base image to reduce repeated pushes:
+
+```bash
+export BASE_IMAGE=pytorch/pytorch:latest
+scripts/vertex_build_push.sh
+```
+
 Manual worker pool spec template (for `gcloud ai custom-jobs create`):
 
 ```

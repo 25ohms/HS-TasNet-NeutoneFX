@@ -1,13 +1,13 @@
 #!/usr/bin/env python
 from __future__ import annotations
 
+import google.auth
 import argparse
 import os
 import subprocess
 from typing import List
 
 from google.cloud import aiplatform
-import google.auth
 
 
 def _preflight_identity() -> None:
