@@ -49,7 +49,7 @@ data:
 train:
   batch_size: 4
   epochs: 5
-  lr: 1e-3
+  lr: 0.001
   grad_accum_steps: 1
   log_every: 10
   val_every: 1

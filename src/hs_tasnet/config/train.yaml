@@ -4,7 +4,7 @@ train:
   epochs: 10
   batch_size: 4
   grad_accum_steps: 1
-  lr: 1e-3
+  lr: 0.001
 
 data:
   tiny_dataset: true
