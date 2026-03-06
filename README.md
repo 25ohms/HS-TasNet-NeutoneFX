@@ -126,3 +126,5 @@ Manual worker pool spec template (for `gcloud ai custom-jobs create`):
 ```
 scripts/vertex_worker_pool.json
 ```
+
+For MUSDB (.stem.mp4) training, the container must include `musdb`, `stempeg`, and `ffmpeg`.

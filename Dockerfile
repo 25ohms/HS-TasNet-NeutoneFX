@@ -11,8 +11,12 @@ COPY src ./src
 COPY tests ./tests
 COPY scripts ./scripts
 
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends ffmpeg \
+    && rm -rf /var/lib/apt/lists/*
+
 RUN python -m pip install --upgrade pip \
-    && pip install -e ".[dev,gcp]"
+    && pip install -e ".[dev,gcp,musdb]"
 
 FROM base AS test
 RUN ruff check .
