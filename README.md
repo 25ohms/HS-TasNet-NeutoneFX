@@ -135,3 +135,36 @@ scripts/vertex_worker_pool.json
 ```
 
 For MUSDB (.stem.mp4) training, the container must include `musdb`, `stempeg`, and `ffmpeg`.
+
+## PR checker
+
+This repo now includes a separate GitHub Actions workflow at `.github/workflows/pr-checker.yml` for pull request review.
+
+What it does:
+- runs on `pull_request_target` so it can safely use repository secrets without executing PR code
+- fetches PR metadata and changed files through the GitHub API
+- sends the reviewed diff to OpenAI and asks for findings focused on:
+  - security and secret-handling issues
+  - training breakage or silent regressions
+  - inference and export compatibility issues
+  - workflow/config problems that could affect CI or deployment
+- posts or updates a sticky PR comment with the review summary
+- fails the check if the model returns blocking findings
+
+Required setup:
+
+1. In your GitHub repository settings, create a repository secret named `OPENAI_API_KEY`.
+2. Open pull requests normally. The existing `CI` workflow still handles lint/tests, and `PR Checker` adds the AI review layer.
+
+Optional local install for dry-runs:
+
+```bash
+pip install -e ".[review]"
+```
+
+Model selection:
+- The workflow defaults to `gpt-4.1-mini` via `OPENAI_MODEL`.
+- If you want a different model, change the `OPENAI_MODEL` value in `.github/workflows/pr-checker.yml`.
+
+Security note:
+- `pull_request_target` is used intentionally here. The workflow checks out the base branch version of the repository and reads PR diffs from the GitHub API, which avoids running untrusted pull request code while the OpenAI secret is available.
