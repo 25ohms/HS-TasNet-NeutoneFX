@@ -240,7 +240,7 @@ def main() -> None:
     device = resolve_device(cfg.get("device", {}).get("name"))
     model_cfg = HSTasNetConfig(**cfg.get("model", {}))
     model = HSTasNet(model_cfg).to(device)
-    load_checkpoint(checkpoint_path, model, map_location=device)
+    load_checkpoint(checkpoint_path, model, map_location=device, restore_rng=False)
 
     dataset = _build_dataset(cfg)
     metrics, rows = _evaluate_dataset(model, dataset, device)

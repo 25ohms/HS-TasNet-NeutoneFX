@@ -37,6 +37,7 @@ def load_checkpoint(
     optimizer: Optional[torch.optim.Optimizer] = None,
     scheduler: Optional[torch.optim.lr_scheduler._LRScheduler] = None,
     map_location: str | torch.device = "cpu",
+    restore_rng: bool = True,
 ) -> Dict[str, Any]:
     ckpt = torch.load(path, map_location=map_location)
     model.load_state_dict(ckpt["model"])
@@ -44,6 +45,6 @@ def load_checkpoint(
         optimizer.load_state_dict(ckpt["optimizer"])
     if scheduler is not None and ckpt.get("scheduler") is not None:
         scheduler.load_state_dict(ckpt["scheduler"])
-    if ckpt.get("rng") is not None:
+    if restore_rng and ckpt.get("rng") is not None:
         set_rng_state(ckpt["rng"])
     return ckpt
