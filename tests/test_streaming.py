@@ -17,6 +17,7 @@ def test_streaming_shapes():
         hops.append(out)
 
     streamed = torch.cat(hops, dim=-1)
+    assert set(streamer.state.keys()) == {"waveform_branch", "spectral_branch", "shared_branch"}
     assert streamed.shape[1] == cfg.num_stems
     assert streamed.shape[-1] == cfg.hop_size * 4
     assert torch.isfinite(streamed).all()

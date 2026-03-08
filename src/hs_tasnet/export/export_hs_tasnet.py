@@ -167,7 +167,8 @@ def load_hs_tasnet(
     audio_channels = model.audio_channels
 
     core = HSTasNetCore(model)
-    example = tr.randn(1, audio_channels, trace_len)
+    trace_samples = max(trace_len, model.cfg.window_size)
+    example = tr.randn(1, audio_channels, trace_samples)
     traced = tr.jit.trace(core, example, strict=False)
     traced.eval()
 

@@ -32,7 +32,12 @@ def test_forward_shapes():
     cfg = HSTasNetConfig(window_size=128, hop_size=64, enc_channels=16, lstm_hidden=32)
     model = HSTasNet(cfg)
     x = torch.randn(2, cfg.audio_channels, 1024)
-    y, _ = model(x)
+    y, aux = model(x)
     assert y.shape[0] == 2
     assert y.shape[1] == cfg.num_stems
     assert y.shape[2] == 1024
+    assert aux["waveform_branch_features"].shape == (2, 16, 15)
+    assert aux["spectral_branch_features"].shape == (2, 65, 15)
+    assert aux["shared_features"].shape == (2, 81, 15)
+    assert aux["split_conv_features"].shape == (2, 16, 15)
+    assert aux["split_spec_features"].shape == (2, 65, 15)

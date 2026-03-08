@@ -134,6 +134,16 @@ class MemoryLSTMBlock(nn.Module):
         return out + features, new_state
 
 
+class BranchSplit(nn.Module):
+    def __init__(self, fused_channels: int, conv_channels: int, spec_channels: int):
+        super().__init__()
+        self.conv_proj = nn.Conv1d(fused_channels, conv_channels, kernel_size=1)
+        self.spec_proj = nn.Conv1d(fused_channels, spec_channels, kernel_size=1)
+
+    def forward(self, fused: torch.Tensor) -> Tuple[torch.Tensor, torch.Tensor]:
+        return self.conv_proj(fused), self.spec_proj(fused)
+
+
 class Fusion(nn.Module):
     def __init__(self, mode: str, conv_channels: int, spec_channels: int):
         super().__init__()
@@ -155,30 +165,25 @@ class Fusion(nn.Module):
         return torch.cat([conv_features, spec_features], dim=1)
 
 
-class MaskHead(nn.Module):
+class DomainMaskHead(nn.Module):
     def __init__(
         self,
-        fused_channels: int,
-        conv_channels: int,
-        spec_channels: int,
+        in_channels: int,
+        feature_channels: int,
         num_stems: int,
         activation: str = "sigmoid",
     ) -> None:
         super().__init__()
         self.num_stems = num_stems
-        self.conv_head = nn.Conv1d(fused_channels, num_stems * conv_channels, kernel_size=1)
-        self.spec_head = nn.Conv1d(fused_channels, num_stems * spec_channels, kernel_size=1)
+        self.head = nn.Conv1d(in_channels, num_stems * feature_channels, kernel_size=1)
         if activation == "tanh":
             self.activation = torch.tanh
         else:
             self.activation = torch.sigmoid
 
-    def forward(self, fused: torch.Tensor) -> Tuple[torch.Tensor, torch.Tensor]:
-        conv_mask = self.conv_head(fused)
-        spec_mask = self.spec_head(fused)
-        conv_mask = self.activation(conv_mask)
-        spec_mask = self.activation(spec_mask)
-        return conv_mask, spec_mask
+    def forward(self, features: torch.Tensor) -> torch.Tensor:
+        mask = self.head(features)
+        return self.activation(mask)
 
 
 class HybridCombiner(nn.Module):

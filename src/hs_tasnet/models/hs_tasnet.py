@@ -1,17 +1,18 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import List, Tuple
+from typing import Dict, List, Tuple
 
 import torch
 from torch import nn
 
 from hs_tasnet.models.modules import (
+    BranchSplit,
     ConvDecoder,
     ConvEncoder,
+    DomainMaskHead,
     Fusion,
     HybridCombiner,
-    MaskHead,
     MemoryLSTMBlock,
     SpectrogramDecoder,
     SpectrogramEncoder,
@@ -67,27 +68,52 @@ class HSTasNet(nn.Module):
             else self.cfg.enc_channels
         )
         self.fusion = Fusion(self.cfg.fusion, self.cfg.enc_channels, spec_channels)
-        self.memory_blocks = nn.ModuleList(
+        self.waveform_branch_blocks = nn.ModuleList(
             [
-                MemoryLSTMBlock(fused_channels, self.cfg.lstm_hidden)
+                MemoryLSTMBlock(self.cfg.enc_channels, self.cfg.lstm_hidden)
                 for _ in range(self.cfg.lstm_layers)
             ]
         )
-        self.mask_head = MaskHead(
-            fused_channels,
-            conv_channels=self.cfg.enc_channels,
-            spec_channels=spec_channels,
+        self.spectral_branch_blocks = nn.ModuleList(
+            [MemoryLSTMBlock(spec_channels, self.cfg.lstm_hidden) for _ in range(self.cfg.lstm_layers)]
+        )
+        self.shared_blocks = nn.ModuleList(
+            [MemoryLSTMBlock(fused_channels, self.cfg.lstm_hidden) for _ in range(self.cfg.lstm_layers)]
+        )
+        self.split = BranchSplit(fused_channels, self.cfg.enc_channels, spec_channels)
+        self.conv_mask_head = DomainMaskHead(
+            self.cfg.enc_channels,
+            feature_channels=self.cfg.enc_channels,
+            num_stems=self.cfg.num_stems,
+            activation=self.cfg.mask_activation,
+        )
+        self.spec_mask_head = DomainMaskHead(
+            spec_channels,
+            feature_channels=spec_channels,
             num_stems=self.cfg.num_stems,
             activation=self.cfg.mask_activation,
         )
         self.combiner = HybridCombiner(alpha=0.5)
+
+    def _run_block_stack(
+        self,
+        features: torch.Tensor,
+        blocks: nn.ModuleList,
+        state: List[Tuple[torch.Tensor, torch.Tensor]] | None = None,
+    ) -> Tuple[torch.Tensor, List[Tuple[torch.Tensor, torch.Tensor]]]:
+        new_state = []
+        for idx, block in enumerate(blocks):
+            block_state = state[idx] if state is not None and idx < len(state) else None
+            features, block_state = block(features, block_state)
+            new_state.append(block_state)
+        return features, new_state
 
     def forward(
         self,
         audio: torch.Tensor,
         auto_curtail_length_to_multiple: bool = True,
         return_aux: bool = True,
-        state: List[Tuple[torch.Tensor, torch.Tensor]] | None = None,
+        state: Dict[str, List[Tuple[torch.Tensor, torch.Tensor]]] | List[Tuple[torch.Tensor, torch.Tensor]] | None = None,
     ):
         # audio: [B, C, T]
         if audio.dim() == 2:
@@ -104,21 +130,37 @@ class HSTasNet(nn.Module):
                 spec_features, size=conv_features.shape[-1], mode="linear", align_corners=False
             )
 
-        fused = self.fusion(conv_features, spec_features)
-        new_state = []
-        for idx, block in enumerate(self.memory_blocks):
-            block_state = state[idx] if state is not None and idx < len(state) else None
-            fused, block_state = block(fused, block_state)
-            new_state.append(block_state)
+        if isinstance(state, dict):
+            waveform_state = state.get("waveform_branch")
+            spectral_state = state.get("spectral_branch")
+            shared_state = state.get("shared_branch")
+        else:
+            # Preserve compatibility with the earlier single-trunk state layout.
+            waveform_state = None
+            spectral_state = None
+            shared_state = state
 
-        conv_mask, spec_mask = self.mask_head(fused)
+        waveform_features, waveform_state = self._run_block_stack(
+            conv_features, self.waveform_branch_blocks, waveform_state
+        )
+        spectral_features, spectral_state = self._run_block_stack(
+            spec_features, self.spectral_branch_blocks, spectral_state
+        )
+        fused = self.fusion(waveform_features, spectral_features)
+        shared_features, shared_state = self._run_block_stack(
+            fused, self.shared_blocks, shared_state
+        )
+        split_conv_features, split_spec_features = self.split(shared_features)
+
+        conv_mask = self.conv_mask_head(split_conv_features)
+        spec_mask = self.spec_mask_head(split_spec_features)
         bsz = conv_features.shape[0]
         t_enc = conv_features.shape[-1]
         conv_mask = conv_mask.view(bsz, self.num_sources, self.cfg.enc_channels, t_enc)
         spec_mask = spec_mask.view(bsz, self.num_sources, -1, t_enc)
 
-        masked_conv = conv_mask * conv_features.unsqueeze(1)
-        masked_spec = spec_mask * spec_features.unsqueeze(1)
+        masked_conv = conv_mask * split_conv_features.unsqueeze(1)
+        masked_spec = spec_mask * split_spec_features.unsqueeze(1)
 
         # Decode conv path
         conv_out = []
@@ -145,7 +187,16 @@ class HSTasNet(nn.Module):
         aux = {
             "conv_mask": conv_mask,
             "spec_mask": spec_mask,
-            "state": new_state,
+            "state": {
+                "waveform_branch": waveform_state,
+                "spectral_branch": spectral_state,
+                "shared_branch": shared_state,
+            },
+            "waveform_branch_features": waveform_features,
+            "spectral_branch_features": spectral_features,
+            "shared_features": shared_features,
+            "split_conv_features": split_conv_features,
+            "split_spec_features": split_spec_features,
         }
         if return_aux:
             return mixed, aux

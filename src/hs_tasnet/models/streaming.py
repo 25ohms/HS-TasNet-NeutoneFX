@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from typing import List, Tuple
+from typing import Dict, List, Tuple
 
 import torch
 
@@ -17,7 +17,7 @@ class StreamingHSTasNet:
 
     def reset(self) -> None:
         self.buffer = torch.zeros(1, self.audio_channels, self.window_size)
-        self.state: List[Tuple[torch.Tensor, torch.Tensor]] | None = None
+        self.state: Dict[str, List[Tuple[torch.Tensor, torch.Tensor]]] | None = None
 
     @torch.no_grad()
     def step(self, x_hop: torch.Tensor) -> torch.Tensor:
