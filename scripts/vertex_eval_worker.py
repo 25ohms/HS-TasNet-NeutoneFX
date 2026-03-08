@@ -63,7 +63,9 @@ def _prepare_local_copy(src: str, dest: Path) -> Path:
     raise FileNotFoundError(f"Expected a directory at {src}")
 
 
-def _load_runtime_config(model_dir: Path, fallback_cfg: str, overrides: Iterable[str]) -> Dict[str, Any]:
+def _load_runtime_config(
+    model_dir: Path, fallback_cfg: str, overrides: Iterable[str]
+) -> Dict[str, Any]:
     config_path = model_dir / "config.yaml"
     cfg_path = config_path if config_path.exists() else Path(fallback_cfg)
     cfg = load_config(cfg_path)
