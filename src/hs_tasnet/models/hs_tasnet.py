@@ -75,10 +75,16 @@ class HSTasNet(nn.Module):
             ]
         )
         self.spectral_branch_blocks = nn.ModuleList(
-            [MemoryLSTMBlock(spec_channels, self.cfg.lstm_hidden) for _ in range(self.cfg.lstm_layers)]
+            [
+                MemoryLSTMBlock(spec_channels, self.cfg.lstm_hidden)
+                for _ in range(self.cfg.lstm_layers)
+            ]
         )
         self.shared_blocks = nn.ModuleList(
-            [MemoryLSTMBlock(fused_channels, self.cfg.lstm_hidden) for _ in range(self.cfg.lstm_layers)]
+            [
+                MemoryLSTMBlock(fused_channels, self.cfg.lstm_hidden)
+                for _ in range(self.cfg.lstm_layers)
+            ]
         )
         self.split = BranchSplit(fused_channels, self.cfg.enc_channels, spec_channels)
         self.conv_mask_head = DomainMaskHead(
@@ -113,7 +119,11 @@ class HSTasNet(nn.Module):
         audio: torch.Tensor,
         auto_curtail_length_to_multiple: bool = True,
         return_aux: bool = True,
-        state: Dict[str, List[Tuple[torch.Tensor, torch.Tensor]]] | List[Tuple[torch.Tensor, torch.Tensor]] | None = None,
+        state: (
+            Dict[str, List[Tuple[torch.Tensor, torch.Tensor]]]
+            | List[Tuple[torch.Tensor, torch.Tensor]]
+            | None
+        ) = None,
     ):
         # audio: [B, C, T]
         if audio.dim() == 2:
