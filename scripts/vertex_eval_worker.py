@@ -189,6 +189,27 @@ def _write_jsonl(path: Path, rows: List[Dict[str, Any]]) -> None:
             handle.write("\n")
 
 
+def _stage_metrics_schema(
+    local_output_dir: Path,
+    eval_output_uri: str,
+    metrics_schema_uri: str | None,
+    metrics_schema_local_path: str | None,
+) -> str | None:
+    if metrics_schema_uri:
+        return metrics_schema_uri
+    if not metrics_schema_local_path:
+        return None
+
+    source = Path(metrics_schema_local_path)
+    if not source.exists():
+        raise FileNotFoundError(f"Missing metrics schema at {source}")
+
+    staged_schema = local_output_dir / "metrics_schema.yaml"
+    staged_schema.write_text(source.read_text(encoding="utf-8"), encoding="utf-8")
+    sync_local_to_gcs(local_output_dir, eval_output_uri)
+    return f"{eval_output_uri.rstrip('/')}/metrics_schema.yaml"
+
+
 def main() -> None:
     parser = argparse.ArgumentParser()
     parser.add_argument("--project", required=True)
@@ -203,6 +224,10 @@ def main() -> None:
     parser.add_argument("--output-dir", default="/mnt/eval")
     parser.add_argument("--evaluation-display-name", default=None)
     parser.add_argument("--metrics-schema-uri", default=None)
+    parser.add_argument(
+        "--metrics-schema-local-path",
+        default="src/hs_tasnet/config/vertex_model_evaluation_metrics.yaml",
+    )
     parser.add_argument("--override", action="append")
     args = parser.parse_args()
 
@@ -254,16 +279,22 @@ def main() -> None:
     _write_json(local_output_dir / "metrics.json", metrics_payload)
     _write_jsonl(local_output_dir / "row_metrics.jsonl", rows)
 
+    metrics_schema_uri = _stage_metrics_schema(
+        local_output_dir=local_output_dir,
+        eval_output_uri=args.eval_output_uri,
+        metrics_schema_uri=args.metrics_schema_uri,
+        metrics_schema_local_path=args.metrics_schema_local_path,
+    )
     sync_local_to_gcs(local_output_dir, args.eval_output_uri)
     row_metrics_uri = f"{args.eval_output_uri.rstrip('/')}/row_metrics.jsonl"
 
     evaluation_display_name = args.evaluation_display_name or run_id
     metadata = {
-        "evaluationDatasetType": data_loader,
-        "evaluationDatasetPath": args.dataset_uri,
-        "checkpointUri": args.model_uri,
-        "rowMetricsUri": row_metrics_uri,
-        "runId": run_id,
+        "evaluation_dataset_type": data_loader,
+        "evaluation_dataset_path": args.dataset_uri,
+        "checkpoint_uri": args.model_uri,
+        "row_based_metrics_path": row_metrics_uri,
+        "run_id": run_id,
     }
     import_result = import_model_evaluation(
         region=args.region,
@@ -271,7 +302,7 @@ def main() -> None:
         evaluation_display_name=evaluation_display_name,
         metrics=metrics,
         metadata=metadata,
-        metrics_schema_uri=args.metrics_schema_uri,
+        metrics_schema_uri=metrics_schema_uri,
     )
     _write_json(local_output_dir / "model_registry_import.json", import_result)
     sync_local_to_gcs(local_output_dir, args.eval_output_uri)

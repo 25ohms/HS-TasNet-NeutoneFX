@@ -64,7 +64,10 @@ def import_model_evaluation(
         json={"modelEvaluation": model_evaluation},
         timeout=60,
     )
-    response.raise_for_status()
+    if not response.ok:
+        raise RuntimeError(
+            f"Vertex model evaluation import failed: {response.status_code} {response.text}"
+        )
     payload = response.json()
 
     operation_name = payload.get("name")

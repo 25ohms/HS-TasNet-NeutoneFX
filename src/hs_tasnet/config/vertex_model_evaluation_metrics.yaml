@@ -1,0 +1,14 @@
+title: HSTasNetEvaluationMetrics
+type: object
+description: Aggregate metrics for HS-TasNet checkpoint evaluation.
+properties:
+  l1:
+    type: number
+    description: Mean L1 loss across evaluated examples.
+  num_examples:
+    type: integer
+    description: Number of evaluated tracks/examples.
+required:
+  - l1
+  - num_examples
+additionalProperties: true

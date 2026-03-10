@@ -9,6 +9,8 @@ from typing import List
 import google.auth
 from google.cloud import aiplatform
 
+from scripts.orchestrator_config import get_nested, load_orchestrator_config
+
 
 def _preflight_identity() -> None:
     creds, adc_project = google.auth.default()
@@ -47,37 +49,105 @@ def _preflight_identity() -> None:
 
 def main() -> None:
     parser = argparse.ArgumentParser()
+    parser.add_argument(
+        "--orchestrator-cfg",
+        default="config.yaml",
+        help="Path to repo-level Vertex orchestration config",
+    )
     parser.add_argument("--project", default=None)
     parser.add_argument("--region", default=None)
     parser.add_argument("--staging-bucket", default=None, help="gs://bucket/staging")
     parser.add_argument("--container-uri", default=None)
     parser.add_argument("--model-serving-container", default=None)
-    parser.add_argument("--job-display-name", default="hs-tasnet-train")
-    parser.add_argument("--model-display-name", default="hs-tasnet-model")
+    parser.add_argument("--job-display-name", default=None)
+    parser.add_argument("--model-display-name", default=None)
     parser.add_argument("--base-output-dir", default=None, help="gs://bucket/model-artifacts")
-    parser.add_argument("--machine-type", default="g2-standard-4")
-    parser.add_argument("--accelerator-type", default="NVIDIA_L4")
-    parser.add_argument("--accelerator-count", type=int, default=1)
-    parser.add_argument("--replica-count", type=int, default=1)
+    parser.add_argument("--machine-type", default=None)
+    parser.add_argument("--accelerator-type", default=None)
+    parser.add_argument("--accelerator-count", type=int, default=None)
+    parser.add_argument("--replica-count", type=int, default=None)
     parser.add_argument("--service-account", default=None)
     parser.add_argument("--network", default=None)
-    parser.add_argument("--cfg", default="src/hs_tasnet/config/train.yaml")
+    parser.add_argument("--cfg", default=None)
     parser.add_argument("--dataset-uri", default=None, help="gs://bucket/musdb18")
     parser.add_argument("--gcs-runs-uri", default=None)
     parser.add_argument("--override", action="append")
     args = parser.parse_args()
 
-    project = args.project or os.environ.get("PROJECT_ID")
-    region = args.region or os.environ.get("REGION")
-    staging_bucket = args.staging_bucket or os.environ.get("STAGING_BUCKET")
-    container_uri = args.container_uri or os.environ.get("CONTAINER_URI")
+    orchestrator_cfg = load_orchestrator_config(args.orchestrator_cfg)
+
+    project = (
+        args.project
+        or get_nested(orchestrator_cfg, "vertex", "project_id")
+        or os.environ.get("PROJECT_ID")
+    )
+    region = (
+        args.region
+        or get_nested(orchestrator_cfg, "vertex", "region")
+        or os.environ.get("REGION")
+    )
+    staging_bucket = (
+        args.staging_bucket
+        or get_nested(orchestrator_cfg, "vertex", "staging_bucket")
+        or os.environ.get("STAGING_BUCKET")
+    )
+    container_uri = (
+        args.container_uri
+        or get_nested(orchestrator_cfg, "vertex", "container_uri")
+        or os.environ.get("CONTAINER_URI")
+    )
     model_serving_container = args.model_serving_container or os.environ.get(
         "MODEL_SERVING_CONTAINER"
     )
-    base_output_dir = args.base_output_dir or os.environ.get("BASE_OUTPUT_DIR")
-    dataset_uri = args.dataset_uri or os.environ.get("DATASET_URI")
-    service_account = args.service_account or os.environ.get("SERVICE_ACCOUNT")
-    network = args.network or os.environ.get("NETWORK")
+    if not model_serving_container:
+        model_serving_container = get_nested(
+            orchestrator_cfg, "vertex", "model_serving_container"
+        )
+    base_output_dir = (
+        args.base_output_dir
+        or get_nested(orchestrator_cfg, "vertex", "train", "base_output_dir")
+        or os.environ.get("BASE_OUTPUT_DIR")
+    )
+    dataset_uri = (
+        args.dataset_uri
+        or get_nested(orchestrator_cfg, "vertex", "train", "dataset_uri")
+        or os.environ.get("DATASET_URI")
+    )
+    service_account = (
+        args.service_account
+        or get_nested(orchestrator_cfg, "vertex", "service_account")
+        or os.environ.get("SERVICE_ACCOUNT")
+    )
+    network = (
+        args.network
+        or get_nested(orchestrator_cfg, "vertex", "network")
+        or os.environ.get("NETWORK")
+    )
+    job_display_name = args.job_display_name or get_nested(
+        orchestrator_cfg, "vertex", "train", "job_display_name"
+    ) or "hs-tasnet-train"
+    model_display_name = args.model_display_name or get_nested(
+        orchestrator_cfg, "vertex", "train", "model_display_name"
+    ) or "hs-tasnet-model"
+    worker_cfg = (
+        args.cfg or get_nested(orchestrator_cfg, "vertex", "train", "cfg")
+        or "src/hs_tasnet/config/train.yaml"
+    )
+    gcs_runs_uri = args.gcs_runs_uri or get_nested(
+        orchestrator_cfg, "vertex", "train", "gcs_runs_uri"
+    )
+    machine_type = args.machine_type or get_nested(
+        orchestrator_cfg, "vertex", "train", "machine_type"
+    ) or "g2-standard-4"
+    accelerator_type = args.accelerator_type or get_nested(
+        orchestrator_cfg, "vertex", "train", "accelerator_type"
+    ) or "NVIDIA_L4"
+    accelerator_count = args.accelerator_count or get_nested(
+        orchestrator_cfg, "vertex", "train", "accelerator_count"
+    ) or 1
+    replica_count = args.replica_count or get_nested(
+        orchestrator_cfg, "vertex", "train", "replica_count"
+    ) or 1
 
     missing = [
         name
@@ -100,7 +170,7 @@ def main() -> None:
     aiplatform.init(project=project, location=region, staging_bucket=staging_bucket)
 
     job = aiplatform.CustomContainerTrainingJob(
-        display_name=args.job_display_name,
+        display_name=job_display_name,
         container_uri=container_uri,
         model_serving_container_image_uri=model_serving_container,
     )
@@ -109,24 +179,24 @@ def main() -> None:
         "python",
         "scripts/vertex_worker.py",
         "--cfg",
-        args.cfg,
+        worker_cfg,
         "--dataset-uri",
         dataset_uri,
     ]
 
-    if args.gcs_runs_uri:
-        worker_args.extend(["--gcs-runs-uri", args.gcs_runs_uri])
+    if gcs_runs_uri:
+        worker_args.extend(["--gcs-runs-uri", gcs_runs_uri])
 
     if args.override:
         for ov in args.override:
             worker_args.extend(["--override", ov])
 
     model = job.run(
-        model_display_name=args.model_display_name,
-        replica_count=args.replica_count,
-        machine_type=args.machine_type,
-        accelerator_type=args.accelerator_type,
-        accelerator_count=args.accelerator_count,
+        model_display_name=model_display_name,
+        replica_count=int(replica_count),
+        machine_type=machine_type,
+        accelerator_type=accelerator_type,
+        accelerator_count=int(accelerator_count),
         base_output_dir=base_output_dir,
         service_account=service_account,
         network=network,
