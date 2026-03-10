@@ -2,8 +2,8 @@ vertex:
   project_id: realtime-stems
   project_number: "69797308691"
   region: us-central1
-  staging_bucket: gs://CHANGE_ME-vertex-staging
-  container_uri: us-central1-docker.pkg.dev/CHANGE_ME/CHANGE_ME/hs-tasnet:latest
+  staging_bucket: gs://realtime-stems/staging
+  container_uri: us-central1-docker.pkg.dev/realtime-stems/realtime-stems-repo/hs-tasnet:latest
   service_account: vertex-jobs@realtime-stems.iam.gserviceaccount.com
   network: null
   model_serving_container: us-docker.pkg.dev/vertex-ai/prediction/pytorch-gpu.2-0:latest
@@ -12,7 +12,7 @@ vertex:
     job_display_name: hs-tasnet-train
     model_display_name: hs-tasnet-model
     cfg: src/hs_tasnet/config/train.yaml
-    dataset_uri: gs://CHANGE_ME/musdb18
+    dataset_uri: gs://realtime-stems/musdb18
     base_output_dir: gs://realtime-stems-model-artifacts
     gcs_runs_uri: gs://realtime-stems-model-artifacts/runs
     machine_type: g2-standard-4
@@ -23,7 +23,7 @@ vertex:
   eval:
     job_display_name: hs-tasnet-eval
     cfg: src/hs_tasnet/config/eval.yaml
-    dataset_uri: gs://CHANGE_ME/musdb18
+    dataset_uri: gs://realtime-stems/musdb18
     model_uri: gs://realtime-stems-model-artifacts/model
     model_resource_name: projects/69797308691/locations/us-central1/models/6917439967199232000
     eval_output_uri: gs://realtime-stems-model-artifacts/evaluations/hs-tasnet-musdb18-test
