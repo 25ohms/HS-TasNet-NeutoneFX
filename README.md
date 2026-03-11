@@ -98,7 +98,7 @@ hs-tasnet train --cfg src/hs_tasnet/config/gcp.yaml
 Submit a training job from an orchestrator VM using Vertex AI (SDK-based orchestration):
 
 ```bash
-python -m scripts.vertex_orchestrator \
+python -m hs_tasnet.vertex_orchestrator \
   --project your-project \
   --region us-central1 \
   --staging-bucket gs://your-bucket/staging \
@@ -151,7 +151,7 @@ export MODEL_RESOURCE_NAME=projects/123456789/locations/us-central1/models/98765
 export EVAL_OUTPUT_URI=gs://your-bucket/evaluations/hs-tasnet-musdb18-test
 export SERVICE_ACCOUNT=vertex-jobs@your-project.iam.gserviceaccount.com
 
-python -m scripts.vertex_eval_orchestrator
+python -m hs_tasnet.vertex_eval_orchestrator
 ```
 
 Mandatory environment variables for evaluation submission:

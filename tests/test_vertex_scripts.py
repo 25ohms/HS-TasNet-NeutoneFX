@@ -27,8 +27,8 @@ def test_orchestrator_config_helpers(tmp_path):
 def test_vertex_script_modules_import():
     pytest.importorskip("google.auth")
 
-    eval_module = importlib.import_module("scripts.vertex_eval_orchestrator")
-    train_module = importlib.import_module("scripts.vertex_orchestrator")
+    eval_module = importlib.import_module("hs_tasnet.vertex_eval_orchestrator")
+    train_module = importlib.import_module("hs_tasnet.vertex_orchestrator")
 
     assert hasattr(eval_module, "main")
     assert hasattr(train_module, "main")
