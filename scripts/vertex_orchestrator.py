@@ -8,6 +8,7 @@ from typing import List
 
 import google.auth
 from google.cloud import aiplatform
+
 from hs_tasnet.utils.orchestrator_config import get_nested, load_orchestrator_config
 
 
