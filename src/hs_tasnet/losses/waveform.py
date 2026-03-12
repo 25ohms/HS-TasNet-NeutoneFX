@@ -18,6 +18,17 @@ def l1_loss(pred: torch.Tensor, target: torch.Tensor) -> torch.Tensor:
     return F.l1_loss(pred, target)
 
 
+def signal_distortion_ratio(
+    pred: torch.Tensor, target: torch.Tensor, eps: float = 1e-8
+) -> torch.Tensor:
+    target = _align_target(pred, target)
+    error = pred - target
+    signal_power = torch.sum(target**2, dim=-1)
+    noise_power = torch.sum(error**2, dim=-1)
+    sdr = 10 * torch.log10((signal_power + eps) / (noise_power + eps))
+    return sdr.mean()
+
+
 def si_snr(pred: torch.Tensor, target: torch.Tensor, eps: float = 1e-8) -> torch.Tensor:
     # pred/target: [B, S, T]
     target = _align_target(pred, target)

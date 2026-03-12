@@ -13,7 +13,7 @@ import numpy as np
 import torch
 
 from hs_tasnet.data.datasets import AudioStemDataset, MusdbStemDataset, TinySyntheticDataset
-from hs_tasnet.losses.waveform import l1_loss
+from hs_tasnet.losses.waveform import l1_loss, signal_distortion_ratio
 from hs_tasnet.models.hs_tasnet import HSTasNet, HSTasNetConfig
 from hs_tasnet.train.checkpointing import load_checkpoint
 from hs_tasnet.utils.config import apply_overrides, load_config, save_config
@@ -149,6 +149,7 @@ def _evaluate_dataset(
 ) -> Tuple[Dict[str, float], List[Dict[str, Any]]]:
     rows: List[Dict[str, Any]] = []
     total_l1 = 0.0
+    total_sdr = 0.0
 
     model.eval()
     with torch.no_grad():
@@ -157,13 +158,16 @@ def _evaluate_dataset(
             mixture = mixture.unsqueeze(0).to(device)
             stems = stems.unsqueeze(0).to(device)
             pred, _ = model(mixture)
-            loss = float(l1_loss(pred, stems).item())
-            total_l1 += loss
+            l1_value = float(l1_loss(pred, stems).item())
+            sdr_value = float(signal_distortion_ratio(pred, stems).item())
+            total_l1 += l1_value
+            total_sdr += sdr_value
             rows.append(
                 {
                     "track_id": track_id,
                     "metrics": {
-                        "l1": loss,
+                        "l1": l1_value,
+                        "sdr": sdr_value,
                     },
                 }
             )
@@ -171,7 +175,8 @@ def _evaluate_dataset(
 
     metrics = {
         "l1": total_l1 / max(len(rows), 1),
-        "num_examples": float(len(rows)),
+        "sdr": total_sdr / max(len(rows), 1),
+        "num_examples": len(rows),
     }
     return metrics, rows
 

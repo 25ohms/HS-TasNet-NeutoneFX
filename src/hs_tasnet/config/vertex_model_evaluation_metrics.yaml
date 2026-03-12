@@ -5,10 +5,14 @@ properties:
   l1:
     type: number
     description: Mean L1 loss across evaluated examples.
+  sdr:
+    type: number
+    description: Mean signal distortion ratio across evaluated examples.
   num_examples:
     type: integer
     description: Number of evaluated tracks/examples.
 required:
   - l1
+  - sdr
   - num_examples
 additionalProperties: true
