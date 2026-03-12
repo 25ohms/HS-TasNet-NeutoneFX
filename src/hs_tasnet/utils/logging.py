@@ -42,7 +42,7 @@ def init_tensorboard(log_dir: str):
     return SummaryWriter(log_dir=log_dir)
 
 
-def maybe_init_wandb(cfg: Dict[str, Any]):
+def maybe_init_wandb(cfg: Dict[str, Any], run_id: str | None = None):
     wandb_cfg = cfg.get("logging", {}).get("wandb", {})
     if not wandb_cfg.get("enabled", False):
         return None
@@ -54,5 +54,6 @@ def maybe_init_wandb(cfg: Dict[str, Any]):
     return wandb.init(
         project=wandb_cfg.get("project", "hs-tasnet"),
         entity=wandb_cfg.get("entity"),
+        name=run_id,
         config=cfg,
     )

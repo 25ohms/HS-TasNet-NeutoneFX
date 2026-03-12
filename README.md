@@ -41,6 +41,19 @@ Paper-faithful training config:
 hs-tasnet train --cfg src/hs_tasnet/config/train_paper.yaml
 ```
 
+`train_paper.yaml` uses a conservative default optimizer setup for stability (`train.lr=1e-4`, `train.grad_clip_norm=1.0`).
+
+Weights & Biases logging:
+
+```bash
+pip install -e ".[wandb]"
+export WANDB_API_KEY=your_wandb_api_key
+hs-tasnet train --cfg src/hs_tasnet/config/train_paper.yaml \
+  --override logging.wandb.enabled=true \
+  --override logging.wandb.project=hs-tasnet \
+  --override logging.wandb.entity=your_entity
+```
+
 Evaluation:
 
 ```bash
@@ -186,6 +199,13 @@ scripts/vertex_worker_pool.json
 ```
 
 For MUSDB (.stem.mp4) training, the container must include `musdb`, `stempeg`, and `ffmpeg`.
+
+To enable W&B in Vertex jobs, pass your API key and logging overrides from the orchestrator environment:
+
+```bash
+export WANDB_API_KEY=your_wandb_api_key
+export EXTRA_OVERRIDES=$'logging.wandb.enabled=true\nlogging.wandb.project=hs-tasnet\nlogging.wandb.entity=your_entity'
+```
 
 ## Vertex AI Evaluation Jobs
 

@@ -16,7 +16,12 @@ from hs_tasnet.train.evaluate import evaluate
 from hs_tasnet.train.optim import build_optimizer, build_scheduler
 from hs_tasnet.utils.config import save_config
 from hs_tasnet.utils.device import resolve_device
-from hs_tasnet.utils.logging import init_tensorboard, log_config, setup_logger
+from hs_tasnet.utils.logging import (
+    init_tensorboard,
+    log_config,
+    maybe_init_wandb,
+    setup_logger,
+)
 from hs_tasnet.utils.seed import set_seed
 
 
@@ -112,12 +117,14 @@ def train(cfg: Dict, resume: Optional[str] = None) -> pathlib.Path:
         writer = init_tensorboard(run_dir / "tb")
     else:
         writer = None
+    wandb_run = maybe_init_wandb(cfg, run_id=run_id)
     scaler = torch.cuda.amp.GradScaler(
         enabled=cfg.get("device", {}).get("use_amp", False) and device.type == "cuda"
     )
 
     epochs = cfg.get("train", {}).get("epochs", 1)
     grad_accum = cfg.get("train", {}).get("grad_accum_steps", 1)
+    grad_clip_norm = cfg.get("train", {}).get("grad_clip_norm")
     train_metric_names = cfg.get("train", {}).get("metrics", ["l1"])
     if "l1" not in train_metric_names:
         raise ValueError(
@@ -129,67 +136,80 @@ def train(cfg: Dict, resume: Optional[str] = None) -> pathlib.Path:
     max_steps = cfg.get("train", {}).get("max_steps")
 
     model.train()
-    for epoch in range(start_epoch, epochs):
-        optimizer.zero_grad()
-        for batch_idx, (mixture, stems) in enumerate(loader):
-            mixture = mixture.to(device)
-            stems = stems.to(device)
-            with torch.cuda.amp.autocast(enabled=scaler.is_enabled()):
-                pred = model(mixture)
-                train_metrics = compute_waveform_metrics(
-                    pred,
-                    stems,
-                    metrics=train_metric_names,
-                    target_channel_policy=cfg.get("train", {}).get(
-                        "target_channel_policy", "strict"
-                    ),
-                )
-                loss = train_metrics["l1"]
-                loss = loss / grad_accum
+    try:
+        for epoch in range(start_epoch, epochs):
+            optimizer.zero_grad()
+            for batch_idx, (mixture, stems) in enumerate(loader):
+                mixture = mixture.to(device)
+                stems = stems.to(device)
+                with torch.cuda.amp.autocast(enabled=scaler.is_enabled()):
+                    pred = model(mixture)
+                    train_metrics = compute_waveform_metrics(
+                        pred,
+                        stems,
+                        metrics=train_metric_names,
+                        target_channel_policy=cfg.get("train", {}).get(
+                            "target_channel_policy", "strict"
+                        ),
+                    )
+                    loss = train_metrics["l1"]
+                    loss = loss / grad_accum
 
-            scaler.scale(loss).backward()
-            if (batch_idx + 1) % grad_accum == 0:
-                scaler.step(optimizer)
-                scaler.update()
-                optimizer.zero_grad()
-                if scheduler:
-                    scheduler.step()
+                scaler.scale(loss).backward()
+                if (batch_idx + 1) % grad_accum == 0:
+                    if grad_clip_norm is not None:
+                        scaler.unscale_(optimizer)
+                        torch.nn.utils.clip_grad_norm_(model.parameters(), float(grad_clip_norm))
+                    scaler.step(optimizer)
+                    scaler.update()
+                    optimizer.zero_grad()
+                    if scheduler:
+                        scheduler.step()
 
-            if global_step % log_every == 0:
-                logger.info(
-                    "train loss=%.4f",
-                    loss.item() * grad_accum,
-                    extra={"step": global_step},
-                )
+                if global_step % log_every == 0:
+                    train_loss = loss.item() * grad_accum
+                    logger.info("train loss=%.4f", train_loss, extra={"step": global_step})
+                    if writer:
+                        writer.add_scalar("train/loss", train_loss, global_step)
+                    if wandb_run:
+                        wandb_run.log(
+                            {"train/loss": train_loss, "step": global_step},
+                            step=global_step,
+                        )
+
+                global_step += 1
+                if max_steps and global_step >= max_steps:
+                    break
+
+            if (epoch + 1) % val_every == 0:
+                metrics = evaluate(model, val_loader, device, eval_cfg=cfg.get("eval", {}))
+                metric_log = " ".join(f"val {name}={value:.4f}" for name, value in metrics.items())
+                logger.info(metric_log, extra={"step": global_step})
                 if writer:
-                    writer.add_scalar("train/loss", loss.item() * grad_accum, global_step)
+                    for name, value in metrics.items():
+                        writer.add_scalar(f"val/{name}", value, global_step)
+                if wandb_run:
+                    wandb_run.log(
+                        {f"val/{name}": value for name, value in metrics.items()},
+                        step=global_step,
+                    )
 
-            global_step += 1
+            if (epoch + 1) % ckpt_every == 0:
+                save_checkpoint(
+                    run_dir / f"checkpoint_epoch{epoch+1}.pt",
+                    model,
+                    optimizer,
+                    scheduler,
+                    epoch + 1,
+                    global_step,
+                    cfg,
+                )
+
             if max_steps and global_step >= max_steps:
                 break
-
-        if (epoch + 1) % val_every == 0:
-            metrics = evaluate(model, val_loader, device, eval_cfg=cfg.get("eval", {}))
-            metric_log = " ".join(f"val {name}={value:.4f}" for name, value in metrics.items())
-            logger.info(metric_log, extra={"step": global_step})
-            if writer:
-                for name, value in metrics.items():
-                    writer.add_scalar(f"val/{name}", value, global_step)
-
-        if (epoch + 1) % ckpt_every == 0:
-            save_checkpoint(
-                run_dir / f"checkpoint_epoch{epoch+1}.pt",
-                model,
-                optimizer,
-                scheduler,
-                epoch + 1,
-                global_step,
-                cfg,
-            )
-
-        if max_steps and global_step >= max_steps:
-            break
-
-    if writer:
-        writer.close()
+    finally:
+        if writer:
+            writer.close()
+        if wandb_run:
+            wandb_run.finish()
     return run_dir

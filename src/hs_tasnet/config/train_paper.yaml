@@ -4,7 +4,8 @@ train:
   epochs: 10
   batch_size: 4
   grad_accum_steps: 1
-  lr: 0.001
+  lr: 0.0001
+  grad_clip_norm: 1.0
 
 data:
   loader: "musdb"
