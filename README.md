@@ -98,7 +98,7 @@ hs-tasnet train --cfg src/hs_tasnet/config/gcp.yaml
 Submit a training job from an orchestrator VM using Vertex AI (SDK-based orchestration):
 
 ```bash
-python scripts/vertex_orchestrator.py \
+python -m hs_tasnet.vertex_orchestrator \
   --project your-project \
   --region us-central1 \
   --staging-bucket gs://your-bucket/staging \
@@ -135,6 +135,42 @@ scripts/vertex_worker_pool.json
 ```
 
 For MUSDB (.stem.mp4) training, the container must include `musdb`, `stempeg`, and `ffmpeg`.
+
+## Vertex AI Evaluation Jobs
+
+Submit a separate evaluation job for a checkpoint stored in GCS and attach the result to a registered Vertex model:
+
+```bash
+export PROJECT_ID=your-project
+export REGION=us-central1
+export STAGING_BUCKET=gs://your-bucket/staging
+export CONTAINER_URI=us-central1-docker.pkg.dev/your-project/your-repo/hs-tasnet:latest
+export MODEL_URI=gs://realtime-stems-model-artifacts/model
+export DATASET_URI=gs://your-bucket/musdb18
+export MODEL_RESOURCE_NAME=projects/123456789/locations/us-central1/models/987654321
+export EVAL_OUTPUT_URI=gs://your-bucket/evaluations/hs-tasnet-musdb18-test
+export SERVICE_ACCOUNT=vertex-jobs@your-project.iam.gserviceaccount.com
+
+python -m hs_tasnet.vertex_eval_orchestrator
+```
+
+Mandatory environment variables for evaluation submission:
+- `PROJECT_ID`
+- `REGION`
+- `STAGING_BUCKET`
+- `CONTAINER_URI`
+- `MODEL_URI`
+- `DATASET_URI`
+- `MODEL_RESOURCE_NAME`
+- `EVAL_OUTPUT_URI`
+- `SERVICE_ACCOUNT`
+
+The eval worker downloads `model.pt` and `config.yaml` from `MODEL_URI`, runs checkpoint evaluation against the supplied dataset, writes:
+- `metrics.json`
+- `row_metrics.jsonl`
+- `model_registry_import.json`
+
+and then imports the aggregate metrics onto the registered model in Vertex Model Registry.
 
 ## PR checker
 
