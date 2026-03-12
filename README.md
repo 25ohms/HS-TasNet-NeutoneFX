@@ -204,8 +204,15 @@ To enable W&B in Vertex jobs, pass your API key and logging overrides from the o
 
 ```bash
 export WANDB_API_KEY=your_wandb_api_key
-export EXTRA_OVERRIDES=$'logging.wandb.enabled=true\nlogging.wandb.project=hs-tasnet\nlogging.wandb.entity=your_entity'
+python -m hs_tasnet.vertex_orchestrator \
+  --cfg src/hs_tasnet/config/train_paper.yaml \
+  --base-output-dir gs://realtime-stems-model-artifacts \
+  --override logging.wandb.enabled=true \
+  --override logging.wandb.project=hs-tasnet \
+  --override logging.wandb.entity=your_entity
 ```
+
+`vertex_orchestrator` forwards `WANDB_API_KEY` from the orchestrator VM environment into the Vertex worker container when supported by the installed Vertex SDK.
 
 ## Vertex AI Evaluation Jobs
 

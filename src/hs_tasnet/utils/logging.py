@@ -51,9 +51,19 @@ def maybe_init_wandb(cfg: Dict[str, Any], run_id: str | None = None):
     except Exception as exc:  # pragma: no cover - optional
         raise RuntimeError("wandb is enabled but not installed") from exc
 
-    return wandb.init(
-        project=wandb_cfg.get("project", "hs-tasnet"),
-        entity=wandb_cfg.get("entity"),
-        name=run_id,
-        config=cfg,
-    )
+    try:
+        return wandb.init(
+            project=wandb_cfg.get("project", "hs-tasnet"),
+            entity=wandb_cfg.get("entity"),
+            name=run_id,
+            config=cfg,
+        )
+    except Exception as exc:
+        msg = str(exc)
+        if "No API key configured" in msg:
+            raise RuntimeError(
+                "W&B is enabled but no API key is available in this runtime. "
+                "Set WANDB_API_KEY in the worker environment (for Vertex, export it "
+                "before invoking hs_tasnet.vertex_orchestrator so it can be forwarded)."
+            ) from exc
+        raise
