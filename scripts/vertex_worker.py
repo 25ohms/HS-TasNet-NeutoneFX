@@ -112,17 +112,28 @@ def main() -> None:
         sync_gcs_to_local(args.dataset_uri, Path(args.data_dir))
 
     cfg = load_config(args.cfg)
+    data_loader = cfg.get("data", {}).get("loader", "wav")
     overrides: List[str] = []
     overrides.extend(args.override or [])
-    overrides.extend(
-        [
-            f"data.train_dir={args.data_dir}/train",
-            f"data.val_dir={args.data_dir}/test",
-            "data.tiny_dataset=false",
-            f"run.dir={args.run_dir}",
-            f"run.id={run_id}",
-        ]
-    )
+    if data_loader == "musdb":
+        overrides.extend(
+            [
+                f"data.musdb_root={args.data_dir}",
+                "data.tiny_dataset=false",
+                f"run.dir={args.run_dir}",
+                f"run.id={run_id}",
+            ]
+        )
+    else:
+        overrides.extend(
+            [
+                f"data.train_dir={args.data_dir}/train",
+                f"data.val_dir={args.data_dir}/test",
+                "data.tiny_dataset=false",
+                f"run.dir={args.run_dir}",
+                f"run.id={run_id}",
+            ]
+        )
     cfg = apply_overrides(cfg, overrides)
 
     run_dir = train(cfg, resume=args.resume)
