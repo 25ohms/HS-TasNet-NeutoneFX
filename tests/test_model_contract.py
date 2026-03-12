@@ -75,6 +75,11 @@ def test_invalid_fusion_mode_rejected():
         HSTasNet(HSTasNetConfig(fusion="invalid"))
 
 
+def test_invalid_spec_mask_representation_rejected():
+    with pytest.raises(ValueError):
+        HSTasNet(HSTasNetConfig(spec_mask_representation="complex"))
+
+
 def test_stem_count_must_match_num_stems():
     with pytest.raises(ValueError):
         HSTasNet(HSTasNetConfig(num_stems=4, stems=["drums", "bass"]))

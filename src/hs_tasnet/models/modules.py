@@ -221,9 +221,8 @@ class DomainMaskHead(nn.Module):
 
 
 class HybridCombiner(nn.Module):
-    def __init__(self, alpha: float = 0.5):
+    def __init__(self):
         super().__init__()
-        self.alpha = alpha
 
     def forward(self, conv_audio: torch.Tensor, spec_audio: torch.Tensor) -> torch.Tensor:
         # conv_audio/spec_audio: [B, S, T]
@@ -231,4 +230,4 @@ class HybridCombiner(nn.Module):
             min_len = min(conv_audio.shape[-1], spec_audio.shape[-1])
             conv_audio = conv_audio[..., :min_len]
             spec_audio = spec_audio[..., :min_len]
-        return self.alpha * conv_audio + (1 - self.alpha) * spec_audio
+        return conv_audio + spec_audio

@@ -2,7 +2,7 @@ import pytest
 import torch
 
 from hs_tasnet.models.hs_tasnet import HSTasNet, HSTasNetConfig
-from hs_tasnet.models.modules import ConvDecoder, ConvEncoder, MemoryLSTMBlock
+from hs_tasnet.models.modules import ConvDecoder, ConvEncoder, HybridCombiner, MemoryLSTMBlock
 
 
 def test_default_encoder_width_matches_paper_phase_1():
@@ -54,6 +54,14 @@ def test_memory_block_encoded_skip_requires_encoded_representation():
     x = torch.randn(2, 16, 15)
     with pytest.raises(ValueError):
         block(x)
+
+
+def test_hybrid_combiner_uses_direct_sum():
+    combiner = HybridCombiner()
+    conv_audio = torch.ones(2, 4, 16)
+    spec_audio = 2 * torch.ones(2, 4, 16)
+    y = combiner(conv_audio, spec_audio)
+    assert torch.allclose(y, 3 * torch.ones_like(y))
 
 
 def test_forward_shapes():

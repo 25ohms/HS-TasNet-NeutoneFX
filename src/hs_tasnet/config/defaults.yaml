@@ -34,7 +34,7 @@ model:
   post_split_num_blocks: 1
   fusion: "concat"  # concat | sum
   mask_activation: "sigmoid"
-  combiner_alpha: 0.5
+  spec_mask_representation: "magnitude"
 
 data:
   loader: "wav"  # wav | musdb

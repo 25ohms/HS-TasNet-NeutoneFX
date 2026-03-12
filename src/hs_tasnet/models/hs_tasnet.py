@@ -41,7 +41,7 @@ class HSTasNetConfig:
     post_split_num_blocks: int = 1
     fusion: str = "concat"
     mask_activation: str = "sigmoid"
-    combiner_alpha: float = 0.5
+    spec_mask_representation: str = "magnitude"
 
 
 class HSTasNet(nn.Module):
@@ -57,8 +57,10 @@ class HSTasNet(nn.Module):
                 f"model.stems length ({len(self.cfg.stems)}) must match model.num_stems "
                 f"({self.cfg.num_stems})."
             )
-        if not (0.0 <= self.cfg.combiner_alpha <= 1.0):
-            raise ValueError("model.combiner_alpha must be between 0.0 and 1.0")
+        if self.cfg.spec_mask_representation != "magnitude":
+            raise ValueError(
+                "model.spec_mask_representation must be 'magnitude' for the current decoder path"
+            )
         block_counts = {
             "wave_num_blocks": self.cfg.wave_num_blocks,
             "spec_num_blocks": self.cfg.spec_num_blocks,
@@ -173,7 +175,7 @@ class HSTasNet(nn.Module):
             num_stems=self.cfg.num_stems,
             activation=self.cfg.mask_activation,
         )
-        self.combiner = HybridCombiner(alpha=self.cfg.combiner_alpha)
+        self.combiner = HybridCombiner()
 
     def _run_block_stack(
         self,

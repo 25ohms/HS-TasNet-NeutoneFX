@@ -72,6 +72,13 @@ hs-tasnet train --cfg src/hs_tasnet/config/train.yaml \
   --override model.shared_lstm_hidden=1000
 ```
 
+Current spectral mask parameterization is magnitude-only:
+
+```bash
+hs-tasnet train --cfg src/hs_tasnet/config/train.yaml \
+  --override model.spec_mask_representation=magnitude
+```
+
 ## Artifacts
 
 - `artifacts/` stores checkpoints (do not commit large files).
