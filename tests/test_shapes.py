@@ -1,7 +1,8 @@
 import torch
+import pytest
 
 from hs_tasnet.models.hs_tasnet import HSTasNet, HSTasNetConfig
-from hs_tasnet.models.modules import ConvDecoder, ConvEncoder
+from hs_tasnet.models.modules import ConvDecoder, ConvEncoder, MemoryLSTMBlock
 
 
 def test_default_encoder_width_matches_paper_phase_1():
@@ -28,16 +29,53 @@ def test_waveform_decoder_uses_hann_windowed_synthesis_filters():
     assert y.shape == (2, 1, 1024)
 
 
+def test_memory_block_uses_two_lstm_stages():
+    block = MemoryLSTMBlock(channels=16, hidden_size=32, skip_mode="identity")
+    x = torch.randn(2, 16, 15)
+    y, state = block(x)
+
+    assert y.shape == x.shape
+    assert isinstance(state, tuple)
+    assert len(state) == 2
+    assert state[0][0].shape[-1] == 32
+    assert state[1][0].shape[-1] == 32
+
+
+def test_memory_block_encoded_skip_accepts_encoded_representation():
+    block = MemoryLSTMBlock(channels=16, hidden_size=32, skip_mode="encoded", skip_channels=16)
+    x = torch.randn(2, 16, 15)
+    encoded = torch.randn(2, 16, 15)
+    y, _ = block(x, encoded_representation=encoded)
+    assert y.shape == x.shape
+
+
+def test_memory_block_encoded_skip_requires_encoded_representation():
+    block = MemoryLSTMBlock(channels=16, hidden_size=32, skip_mode="encoded", skip_channels=16)
+    x = torch.randn(2, 16, 15)
+    with pytest.raises(ValueError):
+        block(x)
+
+
 def test_forward_shapes():
-    cfg = HSTasNetConfig(window_size=128, hop_size=64, enc_channels=16, lstm_hidden=32)
+    cfg = HSTasNetConfig(
+        window_size=128,
+        hop_size=64,
+        enc_channels=16,
+        wave_lstm_hidden=32,
+        spec_lstm_hidden=32,
+        shared_lstm_hidden=64,
+        post_split_wave_lstm_hidden=32,
+        post_split_spec_lstm_hidden=32,
+    )
     model = HSTasNet(cfg)
     x = torch.randn(2, cfg.audio_channels, 1024)
-    y, aux = model(x)
+    y = model(x)
+    output = model.separate(x)
     assert y.shape[0] == 2
     assert y.shape[1] == cfg.num_stems
     assert y.shape[2] == 1024
-    assert aux["waveform_branch_features"].shape == (2, 16, 15)
-    assert aux["spectral_branch_features"].shape == (2, 65, 15)
-    assert aux["shared_features"].shape == (2, 81, 15)
-    assert aux["split_conv_features"].shape == (2, 16, 15)
-    assert aux["split_spec_features"].shape == (2, 65, 15)
+    assert output.waveform_branch_features.shape == (2, 16, 15)
+    assert output.spectral_branch_features.shape == (2, 65, 15)
+    assert output.shared_features.shape == (2, 81, 15)
+    assert output.split_conv_features.shape == (2, 16, 15)
+    assert output.split_spec_features.shape == (2, 65, 15)

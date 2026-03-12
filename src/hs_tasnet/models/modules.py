@@ -119,19 +119,53 @@ class ConvDecoder(nn.Module):
 
 
 class MemoryLSTMBlock(nn.Module):
-    def __init__(self, channels: int, hidden_size: int, num_layers: int = 1):
+    def __init__(
+        self,
+        channels: int,
+        hidden_size: int,
+        skip_mode: str = "identity",
+        skip_channels: int | None = None,
+    ):
         super().__init__()
-        self.lstm = nn.LSTM(channels, hidden_size, num_layers=num_layers, batch_first=True)
+        if skip_mode not in {"identity", "encoded"}:
+            raise ValueError(f"Unsupported skip mode '{skip_mode}'")
+        self.skip_mode = skip_mode
+        self.skip_channels = skip_channels if skip_channels is not None else channels
+
+        self.lstm1 = nn.LSTM(channels, hidden_size, num_layers=1, batch_first=True)
+        self.lstm2 = nn.LSTM(hidden_size, hidden_size, num_layers=1, batch_first=True)
         self.proj = nn.Linear(hidden_size, channels)
+        self.skip_proj = nn.Identity()
+        if self.skip_channels != channels:
+            self.skip_proj = nn.Linear(self.skip_channels, channels)
 
     def forward(
-        self, features: torch.Tensor, state: Tuple[torch.Tensor, torch.Tensor] | None = None
-    ) -> Tuple[torch.Tensor, Tuple[torch.Tensor, torch.Tensor]]:
+        self,
+        features: torch.Tensor,
+        state: (
+            Tuple[Tuple[torch.Tensor, torch.Tensor], Tuple[torch.Tensor, torch.Tensor]] | None
+        ) = None,
+        encoded_representation: torch.Tensor | None = None,
+    ) -> Tuple[
+        torch.Tensor,
+        Tuple[Tuple[torch.Tensor, torch.Tensor], Tuple[torch.Tensor, torch.Tensor]],
+    ]:
         # features: [B, C, T]
         x = features.transpose(1, 2)  # [B, T, C]
-        out, new_state = self.lstm(x, state)
-        out = self.proj(out).transpose(1, 2)
-        return out + features, new_state
+        state1 = state[0] if state is not None else None
+        state2 = state[1] if state is not None else None
+        out1, new_state1 = self.lstm1(x, state1)
+        out2, new_state2 = self.lstm2(out1, state2)
+        out = self.proj(out2).transpose(1, 2)
+
+        if self.skip_mode == "identity":
+            skip_source = features
+        else:
+            if encoded_representation is None:
+                raise ValueError("encoded_representation must be provided for skip_mode='encoded'")
+            skip_source = encoded_representation
+        skip = self.skip_proj(skip_source.transpose(1, 2)).transpose(1, 2)
+        return out + skip, (new_state1, new_state2)
 
 
 class BranchSplit(nn.Module):

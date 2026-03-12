@@ -6,6 +6,7 @@ from typing import Dict, List, Tuple
 import torch
 from torch import nn
 
+from hs_tasnet.models.contracts import BranchState, HSTasNetOutput
 from hs_tasnet.models.modules import (
     BranchSplit,
     ConvDecoder,
@@ -29,16 +30,55 @@ class HSTasNetConfig:
     window_size: int = 1024
     hop_size: int = 512
     enc_channels: int = 1024
-    lstm_hidden: int = 128
-    lstm_layers: int = 2
+    wave_lstm_hidden: int = 500
+    spec_lstm_hidden: int = 500
+    shared_lstm_hidden: int = 1000
+    post_split_wave_lstm_hidden: int = 500
+    post_split_spec_lstm_hidden: int = 500
+    wave_num_blocks: int = 1
+    spec_num_blocks: int = 1
+    shared_num_blocks: int = 1
+    post_split_num_blocks: int = 1
     fusion: str = "concat"
     mask_activation: str = "sigmoid"
+    combiner_alpha: float = 0.5
 
 
 class HSTasNet(nn.Module):
     def __init__(self, cfg: HSTasNetConfig | None = None):
         super().__init__()
         self.cfg = cfg or HSTasNetConfig()
+        if self.cfg.fusion not in {"concat", "sum"}:
+            raise ValueError(
+                f"Unsupported fusion mode '{self.cfg.fusion}'. Expected 'concat' or 'sum'."
+            )
+        if self.cfg.stems is not None and len(self.cfg.stems) != self.cfg.num_stems:
+            raise ValueError(
+                f"model.stems length ({len(self.cfg.stems)}) must match model.num_stems "
+                f"({self.cfg.num_stems})."
+            )
+        if not (0.0 <= self.cfg.combiner_alpha <= 1.0):
+            raise ValueError("model.combiner_alpha must be between 0.0 and 1.0")
+        block_counts = {
+            "wave_num_blocks": self.cfg.wave_num_blocks,
+            "spec_num_blocks": self.cfg.spec_num_blocks,
+            "shared_num_blocks": self.cfg.shared_num_blocks,
+            "post_split_num_blocks": self.cfg.post_split_num_blocks,
+        }
+        for field_name, value in block_counts.items():
+            if value < 0:
+                raise ValueError(f"model.{field_name} must be >= 0")
+        hidden_sizes = {
+            "wave_lstm_hidden": self.cfg.wave_lstm_hidden,
+            "spec_lstm_hidden": self.cfg.spec_lstm_hidden,
+            "shared_lstm_hidden": self.cfg.shared_lstm_hidden,
+            "post_split_wave_lstm_hidden": self.cfg.post_split_wave_lstm_hidden,
+            "post_split_spec_lstm_hidden": self.cfg.post_split_spec_lstm_hidden,
+        }
+        for field_name, value in hidden_sizes.items():
+            if value <= 0:
+                raise ValueError(f"model.{field_name} must be > 0")
+
         self.sample_rate = self.cfg.sample_rate
         self.audio_channels = self.cfg.audio_channels
         self.num_sources = self.cfg.num_stems
@@ -70,23 +110,57 @@ class HSTasNet(nn.Module):
         self.fusion = Fusion(self.cfg.fusion, self.cfg.enc_channels, spec_channels)
         self.waveform_branch_blocks = nn.ModuleList(
             [
-                MemoryLSTMBlock(self.cfg.enc_channels, self.cfg.lstm_hidden)
-                for _ in range(self.cfg.lstm_layers)
+                MemoryLSTMBlock(
+                    self.cfg.enc_channels,
+                    self.cfg.wave_lstm_hidden,
+                    skip_mode="identity",
+                )
+                for _ in range(self.cfg.wave_num_blocks)
             ]
         )
         self.spectral_branch_blocks = nn.ModuleList(
             [
-                MemoryLSTMBlock(spec_channels, self.cfg.lstm_hidden)
-                for _ in range(self.cfg.lstm_layers)
+                MemoryLSTMBlock(
+                    spec_channels,
+                    self.cfg.spec_lstm_hidden,
+                    skip_mode="identity",
+                )
+                for _ in range(self.cfg.spec_num_blocks)
             ]
         )
         self.shared_blocks = nn.ModuleList(
             [
-                MemoryLSTMBlock(fused_channels, self.cfg.lstm_hidden)
-                for _ in range(self.cfg.lstm_layers)
+                MemoryLSTMBlock(
+                    fused_channels,
+                    self.cfg.shared_lstm_hidden,
+                    skip_mode="identity",
+                )
+                for _ in range(self.cfg.shared_num_blocks)
             ]
         )
         self.split = BranchSplit(fused_channels, self.cfg.enc_channels, spec_channels)
+        self.post_split_wave_blocks = nn.ModuleList(
+            [
+                MemoryLSTMBlock(
+                    self.cfg.enc_channels,
+                    self.cfg.post_split_wave_lstm_hidden,
+                    skip_mode="encoded",
+                    skip_channels=self.cfg.enc_channels,
+                )
+                for _ in range(self.cfg.post_split_num_blocks)
+            ]
+        )
+        self.post_split_spec_blocks = nn.ModuleList(
+            [
+                MemoryLSTMBlock(
+                    spec_channels,
+                    self.cfg.post_split_spec_lstm_hidden,
+                    skip_mode="encoded",
+                    skip_channels=spec_channels,
+                )
+                for _ in range(self.cfg.post_split_num_blocks)
+            ]
+        )
         self.conv_mask_head = DomainMaskHead(
             self.cfg.enc_channels,
             feature_channels=self.cfg.enc_channels,
@@ -99,18 +173,29 @@ class HSTasNet(nn.Module):
             num_stems=self.cfg.num_stems,
             activation=self.cfg.mask_activation,
         )
-        self.combiner = HybridCombiner(alpha=0.5)
+        self.combiner = HybridCombiner(alpha=self.cfg.combiner_alpha)
 
     def _run_block_stack(
         self,
         features: torch.Tensor,
         blocks: nn.ModuleList,
-        state: List[Tuple[torch.Tensor, torch.Tensor]] | None = None,
-    ) -> Tuple[torch.Tensor, List[Tuple[torch.Tensor, torch.Tensor]]]:
+        state: (
+            List[Tuple[Tuple[torch.Tensor, torch.Tensor], Tuple[torch.Tensor, torch.Tensor]]]
+            | None
+        ) = None,
+        encoded_representation: torch.Tensor | None = None,
+    ) -> Tuple[
+        torch.Tensor,
+        List[Tuple[Tuple[torch.Tensor, torch.Tensor], Tuple[torch.Tensor, torch.Tensor]]],
+    ]:
         new_state = []
         for idx, block in enumerate(blocks):
             block_state = state[idx] if state is not None and idx < len(state) else None
-            features, block_state = block(features, block_state)
+            features, block_state = block(
+                features,
+                block_state,
+                encoded_representation=encoded_representation,
+            )
             new_state.append(block_state)
         return features, new_state
 
@@ -118,16 +203,27 @@ class HSTasNet(nn.Module):
         self,
         audio: torch.Tensor,
         auto_curtail_length_to_multiple: bool = True,
-        return_aux: bool = True,
-        state: (
-            Dict[str, List[Tuple[torch.Tensor, torch.Tensor]]]
-            | List[Tuple[torch.Tensor, torch.Tensor]]
-            | None
-        ) = None,
-    ):
+        state: BranchState | None = None,
+    ) -> torch.Tensor:
+        return self.separate(
+            audio=audio,
+            auto_curtail_length_to_multiple=auto_curtail_length_to_multiple,
+            state=state,
+        ).audio
+
+    def separate(
+        self,
+        audio: torch.Tensor,
+        auto_curtail_length_to_multiple: bool = True,
+        state: BranchState | None = None,
+    ) -> HSTasNetOutput:
         # audio: [B, C, T]
         if audio.dim() == 2:
             audio = audio.unsqueeze(1)
+        if audio.shape[1] != self.audio_channels:
+            raise ValueError(
+                f"Expected {self.audio_channels} audio channels, got {audio.shape[1]}"
+            )
         orig_len = audio.shape[-1]
         if auto_curtail_length_to_multiple:
             audio = pad_to_multiple(audio, self.cfg.hop_size)
@@ -140,15 +236,18 @@ class HSTasNet(nn.Module):
                 spec_features, size=conv_features.shape[-1], mode="linear", align_corners=False
             )
 
-        if isinstance(state, dict):
+        if state is None:
+            waveform_state = None
+            spectral_state = None
+            shared_state = None
+            post_split_wave_state = None
+            post_split_spec_state = None
+        else:
             waveform_state = state.get("waveform_branch")
             spectral_state = state.get("spectral_branch")
             shared_state = state.get("shared_branch")
-        else:
-            # Preserve compatibility with the earlier single-trunk state layout.
-            waveform_state = None
-            spectral_state = None
-            shared_state = state
+            post_split_wave_state = state.get("post_split_wave_branch")
+            post_split_spec_state = state.get("post_split_spec_branch")
 
         waveform_features, waveform_state = self._run_block_stack(
             conv_features, self.waveform_branch_blocks, waveform_state
@@ -161,6 +260,18 @@ class HSTasNet(nn.Module):
             fused, self.shared_blocks, shared_state
         )
         split_conv_features, split_spec_features = self.split(shared_features)
+        split_conv_features, post_split_wave_state = self._run_block_stack(
+            split_conv_features,
+            self.post_split_wave_blocks,
+            post_split_wave_state,
+            encoded_representation=conv_features,
+        )
+        split_spec_features, post_split_spec_state = self._run_block_stack(
+            split_spec_features,
+            self.post_split_spec_blocks,
+            post_split_spec_state,
+            encoded_representation=spec_features,
+        )
 
         conv_mask = self.conv_mask_head(split_conv_features)
         spec_mask = self.spec_mask_head(split_spec_features)
@@ -194,20 +305,66 @@ class HSTasNet(nn.Module):
 
         mixed = self.combiner(conv_audio, spec_audio)
         mixed = mixed[..., :orig_len]
-        aux = {
-            "conv_mask": conv_mask,
-            "spec_mask": spec_mask,
-            "state": {
-                "waveform_branch": waveform_state,
-                "spectral_branch": spectral_state,
-                "shared_branch": shared_state,
-            },
-            "waveform_branch_features": waveform_features,
-            "spectral_branch_features": spectral_features,
-            "shared_features": shared_features,
-            "split_conv_features": split_conv_features,
-            "split_spec_features": split_spec_features,
+        next_state: BranchState = {
+            "waveform_branch": waveform_state,
+            "spectral_branch": spectral_state,
+            "shared_branch": shared_state,
+            "post_split_wave_branch": post_split_wave_state,
+            "post_split_spec_branch": post_split_spec_state,
         }
-        if return_aux:
-            return mixed, aux
-        return mixed
+        return HSTasNetOutput(
+            audio=mixed,
+            conv_mask=conv_mask,
+            spec_mask=spec_mask,
+            state=next_state,
+            waveform_branch_features=waveform_features,
+            spectral_branch_features=spectral_features,
+            shared_features=shared_features,
+            split_conv_features=split_conv_features,
+            split_spec_features=split_spec_features,
+        )
+
+    def init_stream_state(
+        self,
+        batch_size: int = 1,
+        device: torch.device | None = None,
+        dtype: torch.dtype | None = None,
+    ) -> Dict[str, object]:
+        target_device = device or next(self.parameters()).device
+        target_dtype = dtype or next(self.parameters()).dtype
+        buffer = torch.zeros(
+            batch_size,
+            self.audio_channels,
+            self.cfg.window_size,
+            device=target_device,
+            dtype=target_dtype,
+        )
+        return {"buffer": buffer, "branch_state": None}
+
+    @torch.no_grad()
+    def stream_step(
+        self, x_hop: torch.Tensor, stream_state: Dict[str, object]
+    ) -> Tuple[torch.Tensor, Dict[str, object]]:
+        if x_hop.dim() == 2:
+            x_hop = x_hop.unsqueeze(0)
+        if x_hop.shape[-1] != self.cfg.hop_size:
+            raise ValueError(f"Expected hop size {self.cfg.hop_size}, got {x_hop.shape[-1]}")
+        if x_hop.shape[1] != self.audio_channels:
+            raise ValueError("Channel mismatch for streaming input")
+
+        buffer = stream_state["buffer"]
+        if not isinstance(buffer, torch.Tensor):
+            raise TypeError("stream_state['buffer'] must be a tensor")
+        branch_state = stream_state.get("branch_state")
+        if branch_state is not None and not isinstance(branch_state, dict):
+            raise TypeError("stream_state['branch_state'] must be a branch state dictionary")
+
+        x_hop = x_hop.to(device=buffer.device, dtype=buffer.dtype)
+        buffer = torch.cat([buffer[..., self.cfg.hop_size :], x_hop], dim=-1)
+        output = self.separate(
+            buffer,
+            auto_curtail_length_to_multiple=False,
+            state=branch_state,
+        )
+        updated_state = {"buffer": buffer, "branch_state": output.state}
+        return output.audio[..., -self.cfg.hop_size :], updated_state

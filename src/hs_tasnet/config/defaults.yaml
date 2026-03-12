@@ -23,10 +23,18 @@ model:
   window_size: 1024
   hop_size: 512
   enc_channels: 1024
-  lstm_hidden: 128
-  lstm_layers: 2
+  wave_lstm_hidden: 500
+  spec_lstm_hidden: 500
+  shared_lstm_hidden: 1000
+  post_split_wave_lstm_hidden: 500
+  post_split_spec_lstm_hidden: 500
+  wave_num_blocks: 1
+  spec_num_blocks: 1
+  shared_num_blocks: 1
+  post_split_num_blocks: 1
   fusion: "concat"  # concat | sum
   mask_activation: "sigmoid"
+  combiner_alpha: 0.5
 
 data:
   loader: "wav"  # wav | musdb
@@ -51,6 +59,8 @@ train:
   epochs: 5
   lr: 0.001
   grad_accum_steps: 1
+  metrics: ["l1"]
+  target_channel_policy: "strict"  # strict | mono_downmix | first_channel
   log_every: 10
   val_every: 1
   ckpt_every: 1
@@ -62,6 +72,8 @@ val:
 eval:
   checkpoint: null
   batch_size: 4
+  metrics: ["l1", "sdr"]
+  target_channel_policy: "strict"  # strict | mono_downmix | first_channel
 
 infer:
   checkpoint: null

@@ -9,7 +9,7 @@ from torch.utils.data import DataLoader
 
 from hs_tasnet.data.collate import collate_examples
 from hs_tasnet.data.datasets import AudioStemDataset, MusdbStemDataset, TinySyntheticDataset
-from hs_tasnet.losses.waveform import l1_loss
+from hs_tasnet.losses.metrics import compute_waveform_metrics
 from hs_tasnet.models.hs_tasnet import HSTasNet, HSTasNetConfig
 from hs_tasnet.train.checkpointing import load_checkpoint, save_checkpoint
 from hs_tasnet.train.evaluate import evaluate
@@ -115,6 +115,11 @@ def train(cfg: Dict, resume: Optional[str] = None) -> pathlib.Path:
 
     epochs = cfg.get("train", {}).get("epochs", 1)
     grad_accum = cfg.get("train", {}).get("grad_accum_steps", 1)
+    train_metric_names = cfg.get("train", {}).get("metrics", ["l1"])
+    if "l1" not in train_metric_names:
+        raise ValueError(
+            "train.metrics must include 'l1' because it is used as the optimization loss"
+        )
     log_every = cfg.get("train", {}).get("log_every", 10)
     val_every = cfg.get("train", {}).get("val_every", 1)
     ckpt_every = cfg.get("train", {}).get("ckpt_every", 1)
@@ -127,8 +132,16 @@ def train(cfg: Dict, resume: Optional[str] = None) -> pathlib.Path:
             mixture = mixture.to(device)
             stems = stems.to(device)
             with torch.cuda.amp.autocast(enabled=scaler.is_enabled()):
-                pred, _ = model(mixture)
-                loss = l1_loss(pred, stems)
+                pred = model(mixture)
+                train_metrics = compute_waveform_metrics(
+                    pred,
+                    stems,
+                    metrics=train_metric_names,
+                    target_channel_policy=cfg.get("train", {}).get(
+                        "target_channel_policy", "strict"
+                    ),
+                )
+                loss = train_metrics["l1"]
                 loss = loss / grad_accum
 
             scaler.scale(loss).backward()
@@ -153,10 +166,12 @@ def train(cfg: Dict, resume: Optional[str] = None) -> pathlib.Path:
                 break
 
         if (epoch + 1) % val_every == 0:
-            metrics = evaluate(model, val_loader, device)
-            logger.info("val l1=%.4f", metrics["l1"], extra={"step": global_step})
+            metrics = evaluate(model, val_loader, device, eval_cfg=cfg.get("eval", {}))
+            metric_log = " ".join(f"val {name}={value:.4f}" for name, value in metrics.items())
+            logger.info(metric_log, extra={"step": global_step})
             if writer:
-                writer.add_scalar("val/l1", metrics["l1"], global_step)
+                for name, value in metrics.items():
+                    writer.add_scalar(f"val/{name}", value, global_step)
 
         if (epoch + 1) % ckpt_every == 0:
             save_checkpoint(

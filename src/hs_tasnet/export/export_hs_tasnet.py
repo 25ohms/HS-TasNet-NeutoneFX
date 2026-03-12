@@ -37,9 +37,7 @@ class HSTasNetCore(nn.Module):
         self.model = model
 
     def forward(self, audio: Tensor) -> Tensor:
-        recon_audio, _ = self.model(
-            audio, auto_curtail_length_to_multiple=False, return_aux=True
-        )
+        recon_audio = self.model(audio, auto_curtail_length_to_multiple=False)
         return recon_audio  # [B, S, T]
 
 
@@ -132,7 +130,7 @@ class HSTasNetWrapper:
                 if pad:
                     x = F.pad(x, (0, pad))
 
-                y, _ = self.model(x.unsqueeze(0))  # [1, S, T]
+                y = self.model(x.unsqueeze(0))  # [1, S, T]
                 gains = tr.stack(
                     [params["s1"], params["s2"], params["s3"], params["s4"]]
                 ).view(1, self.num_sources, 1)

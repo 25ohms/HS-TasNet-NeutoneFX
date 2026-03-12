@@ -13,7 +13,7 @@ import numpy as np
 import torch
 
 from hs_tasnet.data.datasets import AudioStemDataset, MusdbStemDataset, TinySyntheticDataset
-from hs_tasnet.losses.waveform import l1_loss, signal_distortion_ratio
+from hs_tasnet.losses.metrics import compute_waveform_metrics
 from hs_tasnet.models.hs_tasnet import HSTasNet, HSTasNetConfig
 from hs_tasnet.train.checkpointing import load_checkpoint
 from hs_tasnet.utils.config import apply_overrides, load_config, save_config
@@ -145,11 +145,12 @@ def _audio_example_from_track(dataset: Any, index: int) -> Tuple[str, torch.Tens
 
 
 def _evaluate_dataset(
-    model: torch.nn.Module, dataset: Any, device: torch.device
+    model: torch.nn.Module, dataset: Any, device: torch.device, eval_cfg: Dict[str, Any]
 ) -> Tuple[Dict[str, float], List[Dict[str, Any]]]:
+    metric_names = eval_cfg.get("metrics", ["l1", "sdr"])
+    target_channel_policy = eval_cfg.get("target_channel_policy", "strict")
     rows: List[Dict[str, Any]] = []
-    total_l1 = 0.0
-    total_sdr = 0.0
+    totals: Dict[str, float] = {name: 0.0 for name in metric_names}
 
     model.eval()
     with torch.no_grad():
@@ -157,27 +158,28 @@ def _evaluate_dataset(
             track_id, mixture, stems = _audio_example_from_track(dataset, index)
             mixture = mixture.unsqueeze(0).to(device)
             stems = stems.unsqueeze(0).to(device)
-            pred, _ = model(mixture)
-            l1_value = float(l1_loss(pred, stems).item())
-            sdr_value = float(signal_distortion_ratio(pred, stems).item())
-            total_l1 += l1_value
-            total_sdr += sdr_value
+            pred = model(mixture)
+            metric_values = compute_waveform_metrics(
+                pred,
+                stems,
+                metrics=metric_names,
+                target_channel_policy=target_channel_policy,
+            )
+            row_metric_values = {
+                name: float(value.item()) for name, value in metric_values.items()
+            }
+            for metric_name, metric_value in row_metric_values.items():
+                totals[metric_name] += metric_value
             rows.append(
                 {
                     "track_id": track_id,
-                    "metrics": {
-                        "l1": l1_value,
-                        "sdr": sdr_value,
-                    },
+                    "metrics": row_metric_values,
                 }
             )
     model.train()
 
-    metrics = {
-        "l1": total_l1 / max(len(rows), 1),
-        "sdr": total_sdr / max(len(rows), 1),
-        "num_examples": len(rows),
-    }
+    metrics = {name: total / max(len(rows), 1) for name, total in totals.items()}
+    metrics["num_examples"] = len(rows)
     return metrics, rows
 
 
@@ -273,7 +275,7 @@ def main() -> None:
     load_checkpoint(checkpoint_path, model, map_location=device, restore_rng=False)
 
     dataset = _build_dataset(cfg)
-    metrics, rows = _evaluate_dataset(model, dataset, device)
+    metrics, rows = _evaluate_dataset(model, dataset, device, cfg.get("eval", {}))
 
     metrics_payload = {
         "checkpoint_path": checkpoint_path.as_posix(),

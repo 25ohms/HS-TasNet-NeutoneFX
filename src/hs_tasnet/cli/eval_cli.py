@@ -54,5 +54,5 @@ def run(args: Namespace) -> None:
         collate_fn=collate_examples,
     )
 
-    metrics = evaluate(model, loader, device)
+    metrics = evaluate(model, loader, device, eval_cfg=cfg.get("eval", {}))
     logger.info("Eval metrics: %s", metrics)

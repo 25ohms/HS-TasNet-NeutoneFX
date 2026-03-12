@@ -63,6 +63,15 @@ Override any YAML value from the CLI:
 hs-tasnet train --cfg src/hs_tasnet/config/train.yaml --override train.batch_size=8
 ```
 
+Example model-width overrides:
+
+```bash
+hs-tasnet train --cfg src/hs_tasnet/config/train.yaml \
+  --override model.wave_lstm_hidden=500 \
+  --override model.spec_lstm_hidden=500 \
+  --override model.shared_lstm_hidden=1000
+```
+
 ## Artifacts
 
 - `artifacts/` stores checkpoints (do not commit large files).
