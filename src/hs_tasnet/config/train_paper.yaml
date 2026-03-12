@@ -10,4 +10,6 @@ data:
   loader: "musdb"
   musdb_root: /mnt/data/musdb18
   musdb_is_wav: false
+  musdb_val_subset: "train"
+  musdb_val_split: "valid"
   tiny_dataset: false

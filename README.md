@@ -153,6 +153,8 @@ By default the orchestrator config (`config.yaml`) points training to:
 - `src/hs_tasnet/config/train_paper.yaml`
 
 `train_paper.yaml` uses `data.loader=musdb` and expects MUSDB at `/mnt/data/musdb18` inside the worker container (the Vertex worker populates this from `--dataset-uri`).
+By default MUSDB validation uses the training subset split (`data.musdb_val_subset=train`, `data.musdb_val_split=valid`); reserve `test` for final testing/evaluation jobs.
+If your MUSDB install does not expose a built-in `train/valid` split, the loader falls back to a deterministic 80/20 split on the training subset (`data.musdb_train_fraction=0.8`, `data.musdb_split_seed=42`).
 
 The worker container downloads the dataset from GCS, runs training, and writes the final checkpoint to `AIP_MODEL_DIR` so Vertex AI can register it in the Model Registry.
 Model artifacts are always written to a timestamped bundle directory under `AIP_MODEL_DIR`, for example:

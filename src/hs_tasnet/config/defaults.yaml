@@ -47,8 +47,11 @@ data:
   val_dir: null
   musdb_root: null
   musdb_is_wav: false
-  musdb_val_subset: "test"   # "test" or "train"
+  musdb_val_subset: "train"  # "train" for validation by default; "test" for final test-only eval
   musdb_val_split: "valid"   # used only when musdb_val_subset="train"
+  musdb_fallback_to_ratio_split: true
+  musdb_train_fraction: 0.8
+  musdb_split_seed: 42
   num_workers: 2
   pin_memory: true
   prefetch_factor: 2

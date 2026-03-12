@@ -111,6 +111,9 @@ def _build_dataset(cfg: Dict[str, Any]):
             sample_rate=data_cfg.get("sample_rate", 44100),
             audio_channels=data_cfg.get("audio_channels", 1),
             is_wav=bool(data_cfg.get("musdb_is_wav", False)),
+            fallback_to_ratio_split=bool(data_cfg.get("musdb_fallback_to_ratio_split", True)),
+            train_fraction=float(data_cfg.get("musdb_train_fraction", 0.8)),
+            split_seed=int(data_cfg.get("musdb_split_seed", 42)),
         )
     if data_cfg.get("tiny_dataset", False) or not data_cfg.get("val_dir"):
         return TinySyntheticDataset(
