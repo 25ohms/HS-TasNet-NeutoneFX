@@ -282,8 +282,10 @@ class HSTasNet(nn.Module):
         conv_mask = conv_mask.view(bsz, self.num_sources, self.cfg.enc_channels, t_enc)
         spec_mask = spec_mask.view(bsz, self.num_sources, -1, t_enc)
 
-        masked_conv = conv_mask * split_conv_features.unsqueeze(1)
-        masked_spec = spec_mask * split_spec_features.unsqueeze(1)
+        # Predict masks from post-split memory features, then apply them to the
+        # encoder-domain representations.
+        masked_conv = conv_mask * conv_features.unsqueeze(1)
+        masked_spec = spec_mask * spec_features.unsqueeze(1)
 
         # Decode conv path
         conv_out = []
