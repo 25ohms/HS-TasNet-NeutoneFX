@@ -49,6 +49,18 @@ hs-tasnet infer --cfg src/hs_tasnet/config/infer.yaml \
   --override infer.checkpoint=artifacts/hs_tasnet.pt
 ```
 
+Realtime streaming benchmark (Python API):
+
+```python
+from hs_tasnet.infer.realtime import benchmark_streaming, build_streaming
+from hs_tasnet.models.hs_tasnet import HSTasNet
+
+model = HSTasNet()
+streamer = build_streaming(model.eval())
+metrics = benchmark_streaming(streamer, num_hops=200)
+print(metrics)  # avg_hop_ms, rtf, algorithmic_latency_ms
+```
+
 Export (Neutone):
 
 ```bash

@@ -36,6 +36,7 @@ def stft(
         hop_length=hop_length,
         win_length=win_length or n_fft,
         window=window,
+        center=False,
         return_complex=True,
     )
 
@@ -54,6 +55,7 @@ def istft(
         hop_length=hop_length,
         win_length=win_length or n_fft,
         window=window,
+        center=False,
         length=length,
     )
 

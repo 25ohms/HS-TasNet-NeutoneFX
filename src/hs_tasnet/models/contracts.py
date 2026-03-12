@@ -13,6 +13,8 @@ BranchState = Dict[str, List[MemoryBlockState] | None]
 @dataclass
 class HSTasNetOutput:
     audio: torch.Tensor
+    conv_audio: torch.Tensor
+    spec_audio: torch.Tensor
     conv_mask: torch.Tensor
     spec_mask: torch.Tensor
     state: BranchState
@@ -24,6 +26,9 @@ class HSTasNetOutput:
 
     def as_aux_dict(self) -> Dict[str, object]:
         return {
+            "audio": self.audio,
+            "conv_audio": self.conv_audio,
+            "spec_audio": self.spec_audio,
             "conv_mask": self.conv_mask,
             "spec_mask": self.spec_mask,
             "state": self.state,

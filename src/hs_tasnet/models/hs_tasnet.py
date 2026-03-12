@@ -306,6 +306,8 @@ class HSTasNet(nn.Module):
         spec_audio = torch.stack(spec_out, dim=1)
 
         mixed = self.combiner(conv_audio, spec_audio)
+        conv_audio = conv_audio[..., :orig_len]
+        spec_audio = spec_audio[..., :orig_len]
         mixed = mixed[..., :orig_len]
         next_state: BranchState = {
             "waveform_branch": waveform_state,
@@ -316,6 +318,8 @@ class HSTasNet(nn.Module):
         }
         return HSTasNetOutput(
             audio=mixed,
+            conv_audio=conv_audio,
+            spec_audio=spec_audio,
             conv_mask=conv_mask,
             spec_mask=spec_mask,
             state=next_state,
@@ -334,6 +338,13 @@ class HSTasNet(nn.Module):
     ) -> Dict[str, object]:
         target_device = device or next(self.parameters()).device
         target_dtype = dtype or next(self.parameters()).dtype
+        overlap = self.cfg.window_size - self.cfg.hop_size
+        if overlap <= 0:
+            raise ValueError("Streaming requires model.window_size > model.hop_size")
+        if overlap != self.cfg.hop_size:
+            raise ValueError(
+                "Streaming overlap-add currently requires window_size == 2 * hop_size"
+            )
         buffer = torch.zeros(
             batch_size,
             self.audio_channels,
@@ -341,7 +352,26 @@ class HSTasNet(nn.Module):
             device=target_device,
             dtype=target_dtype,
         )
-        return {"buffer": buffer, "branch_state": None}
+        conv_overlap = torch.zeros(
+            batch_size,
+            self.num_sources,
+            overlap,
+            device=target_device,
+            dtype=target_dtype,
+        )
+        spec_overlap = torch.zeros(
+            batch_size,
+            self.num_sources,
+            overlap,
+            device=target_device,
+            dtype=target_dtype,
+        )
+        return {
+            "buffer": buffer,
+            "branch_state": None,
+            "conv_overlap": conv_overlap,
+            "spec_overlap": spec_overlap,
+        }
 
     @torch.no_grad()
     def stream_step(
@@ -360,6 +390,12 @@ class HSTasNet(nn.Module):
         branch_state = stream_state.get("branch_state")
         if branch_state is not None and not isinstance(branch_state, dict):
             raise TypeError("stream_state['branch_state'] must be a branch state dictionary")
+        conv_overlap = stream_state.get("conv_overlap")
+        spec_overlap = stream_state.get("spec_overlap")
+        if not isinstance(conv_overlap, torch.Tensor):
+            raise TypeError("stream_state['conv_overlap'] must be a tensor")
+        if not isinstance(spec_overlap, torch.Tensor):
+            raise TypeError("stream_state['spec_overlap'] must be a tensor")
 
         x_hop = x_hop.to(device=buffer.device, dtype=buffer.dtype)
         buffer = torch.cat([buffer[..., self.cfg.hop_size :], x_hop], dim=-1)
@@ -368,5 +404,15 @@ class HSTasNet(nn.Module):
             auto_curtail_length_to_multiple=False,
             state=branch_state,
         )
-        updated_state = {"buffer": buffer, "branch_state": output.state}
-        return output.audio[..., -self.cfg.hop_size :], updated_state
+        overlap = self.cfg.window_size - self.cfg.hop_size
+        conv_hop = conv_overlap + output.conv_audio[..., :overlap]
+        spec_hop = spec_overlap + output.spec_audio[..., :overlap]
+        mixed_hop = self.combiner(conv_hop, spec_hop)
+
+        updated_state = {
+            "buffer": buffer,
+            "branch_state": output.state,
+            "conv_overlap": output.conv_audio[..., overlap:],
+            "spec_overlap": output.spec_audio[..., overlap:],
+        }
+        return mixed_hop, updated_state

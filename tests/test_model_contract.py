@@ -68,6 +68,8 @@ def test_stream_step_contract():
     assert y_hop.shape == (1, cfg.num_stems, cfg.hop_size)
     assert "buffer" in stream_state
     assert "branch_state" in stream_state
+    assert "conv_overlap" in stream_state
+    assert "spec_overlap" in stream_state
 
 
 def test_invalid_fusion_mode_rejected():
