@@ -1,5 +1,5 @@
-import torch
 import pytest
+import torch
 
 from hs_tasnet.models.hs_tasnet import HSTasNet, HSTasNetConfig
 from hs_tasnet.models.modules import ConvDecoder, ConvEncoder, MemoryLSTMBlock
