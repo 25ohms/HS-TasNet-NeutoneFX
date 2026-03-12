@@ -29,10 +29,16 @@ Notes:
 
 ## Quickstart
 
-Training on the tiny synthetic dataset:
+Training on the tiny synthetic dataset (lightweight baseline/dev):
 
 ```bash
 hs-tasnet train --cfg src/hs_tasnet/config/train.yaml
+```
+
+Paper-faithful training config:
+
+```bash
+hs-tasnet train --cfg src/hs_tasnet/config/train_paper.yaml
 ```
 
 Evaluation:
@@ -91,6 +97,11 @@ hs-tasnet train --cfg src/hs_tasnet/config/train.yaml \
   --override model.spec_mask_representation=magnitude
 ```
 
+Config intent:
+- `src/hs_tasnet/config/train.yaml` is the lightweight baseline/dev config.
+- `src/hs_tasnet/config/train_paper.yaml` is the paper-faithful training config for real runs.
+- `src/hs_tasnet/config/paper_hs_tasnet.yaml` contains paper-faithful model architecture defaults.
+
 ## Artifacts
 
 - `artifacts/` stores checkpoints (do not commit large files).
@@ -121,6 +132,8 @@ Config preset for VM paths:
 hs-tasnet train --cfg src/hs_tasnet/config/gcp.yaml
 ```
 
+`gcp.yaml` inherits paper-faithful model settings and is intended for real dataset training on VM.
+
 ## Vertex AI Custom Jobs
 
 Submit a training job from an orchestrator VM using Vertex AI (SDK-based orchestration):
@@ -136,7 +149,13 @@ python -m hs_tasnet.vertex_orchestrator \
   --dataset-uri gs://your-bucket/musdb18
 ```
 
+By default the orchestrator config (`config.yaml`) points training to:
+- `src/hs_tasnet/config/train_paper.yaml`
+
 The worker container downloads the dataset from GCS, runs training, and writes the final checkpoint to `AIP_MODEL_DIR` so Vertex AI can register it in the Model Registry.
+Model artifacts are always written to a timestamped bundle directory under `AIP_MODEL_DIR`, for example:
+- `.../model/20260312_153012_vertex-run-1234/model.pt`
+- `.../model/20260312_153012_vertex-run-1234/config.yaml`
 
 Build and push the training image to Artifact Registry:
 
@@ -194,6 +213,7 @@ Mandatory environment variables for evaluation submission:
 - `SERVICE_ACCOUNT`
 
 The eval worker downloads `model.pt` and `config.yaml` from `MODEL_URI`, runs checkpoint evaluation against the supplied dataset, writes:
+If `MODEL_URI` contains timestamped bundles, the worker automatically picks the latest bundle directory.
 - `metrics.json`
 - `row_metrics.jsonl`
 - `model_registry_import.json`

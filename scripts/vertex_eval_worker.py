@@ -63,6 +63,21 @@ def _prepare_local_copy(src: str, dest: Path) -> Path:
     raise FileNotFoundError(f"Expected a directory at {src}")
 
 
+def _resolve_model_bundle_dir(model_root: Path) -> Path:
+    direct_checkpoint = model_root / "model.pt"
+    if direct_checkpoint.exists():
+        return model_root
+
+    candidates = []
+    for child in model_root.iterdir():
+        if child.is_dir() and (child / "model.pt").exists():
+            candidates.append(child)
+    if not candidates:
+        raise FileNotFoundError(f"Missing checkpoint under {model_root}")
+    candidates.sort(key=lambda p: p.name)
+    return candidates[-1]
+
+
 def _load_runtime_config(
     model_dir: Path, fallback_cfg: str, overrides: Iterable[str]
 ) -> Dict[str, Any]:
@@ -240,7 +255,8 @@ def main() -> None:
 
     logger = setup_logger()
     run_id = os.environ.get("AIP_JOB_NAME") or f"vertex-eval-{int(time.time())}"
-    local_model_dir = _prepare_local_copy(args.model_uri, Path(args.model_dir))
+    local_model_root = _prepare_local_copy(args.model_uri, Path(args.model_dir))
+    local_model_dir = _resolve_model_bundle_dir(local_model_root)
     local_data_dir = _prepare_local_copy(args.dataset_uri, Path(args.data_dir))
 
     local_output_dir = Path(args.output_dir) / run_id
@@ -254,8 +270,6 @@ def main() -> None:
     ]
 
     checkpoint_path = local_model_dir / "model.pt"
-    if not checkpoint_path.exists():
-        raise FileNotFoundError(f"Missing checkpoint at {checkpoint_path}")
 
     cfg_probe = _load_runtime_config(local_model_dir, args.cfg, [])
     data_loader = cfg_probe.get("data", {}).get("loader", "wav")
@@ -279,6 +293,7 @@ def main() -> None:
 
     metrics_payload = {
         "checkpoint_path": checkpoint_path.as_posix(),
+        "model_bundle_dir": local_model_dir.as_posix(),
         "dataset_uri": args.dataset_uri,
         "loader": data_loader,
         "metrics": metrics,

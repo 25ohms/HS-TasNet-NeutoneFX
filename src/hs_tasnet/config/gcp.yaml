@@ -1,4 +1,4 @@
-base: defaults.yaml
+base: paper_hs_tasnet.yaml
 
 run:
   dir: /mnt/runs

@@ -11,7 +11,7 @@ vertex:
   train:
     job_display_name: hs-tasnet-train
     model_display_name: hs-tasnet-model
-    cfg: src/hs_tasnet/config/train.yaml
+    cfg: src/hs_tasnet/config/train_paper.yaml
     dataset_uri: gs://realtime-stems/musdb18
     base_output_dir: gs://realtime-stems-model-artifacts
     gcs_runs_uri: gs://realtime-stems-model-artifacts/runs

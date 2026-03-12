@@ -5,6 +5,7 @@ import argparse
 import os
 import shutil
 import tempfile
+import time
 from pathlib import Path
 from typing import List
 
@@ -40,32 +41,44 @@ def _is_gcs_uri(path: str | None) -> bool:
     return bool(path and path.startswith("gs://"))
 
 
-def _write_model_artifacts(run_dir: Path, latest_checkpoint: Path, output_dir: str | None) -> None:
+def _write_model_artifacts(
+    run_dir: Path,
+    latest_checkpoint: Path,
+    output_dir: str | None,
+    run_id: str,
+) -> str:
+    timestamp = time.strftime("%Y%m%d_%H%M%S")
+    bundle_name = f"{timestamp}_{run_id}"
     if not output_dir:
         output_path = Path("/tmp/aip_model")
-        output_path.mkdir(parents=True, exist_ok=True)
-        shutil.copy2(latest_checkpoint, output_path / "model.pt")
+        bundle_path = output_path / bundle_name
+        bundle_path.mkdir(parents=True, exist_ok=True)
+        shutil.copy2(latest_checkpoint, bundle_path / "model.pt")
         config_path = run_dir / "config.yaml"
         if config_path.exists():
-            shutil.copy2(config_path, output_path / "config.yaml")
-        return
+            shutil.copy2(config_path, bundle_path / "config.yaml")
+        return bundle_path.as_posix()
 
     if _is_gcs_uri(output_dir):
         with tempfile.TemporaryDirectory(prefix="hs_tasnet_model_") as tmp_dir:
             tmp_path = Path(tmp_dir)
-            shutil.copy2(latest_checkpoint, tmp_path / "model.pt")
+            bundle_path = tmp_path / bundle_name
+            bundle_path.mkdir(parents=True, exist_ok=True)
+            shutil.copy2(latest_checkpoint, bundle_path / "model.pt")
             config_path = run_dir / "config.yaml"
             if config_path.exists():
-                shutil.copy2(config_path, tmp_path / "config.yaml")
+                shutil.copy2(config_path, bundle_path / "config.yaml")
             sync_local_to_gcs(tmp_path, output_dir)
-        return
+        return f"{output_dir.rstrip('/')}/{bundle_name}"
 
     output_path = Path(output_dir)
-    output_path.mkdir(parents=True, exist_ok=True)
-    shutil.copy2(latest_checkpoint, output_path / "model.pt")
+    bundle_path = output_path / bundle_name
+    bundle_path.mkdir(parents=True, exist_ok=True)
+    shutil.copy2(latest_checkpoint, bundle_path / "model.pt")
     config_path = run_dir / "config.yaml"
     if config_path.exists():
-        shutil.copy2(config_path, output_path / "config.yaml")
+        shutil.copy2(config_path, bundle_path / "config.yaml")
+    return bundle_path.as_posix()
 
 
 def _write_run_artifacts(run_dir: Path, output_dir: str | None) -> None:
@@ -115,7 +128,13 @@ def main() -> None:
     run_dir = train(cfg, resume=args.resume)
 
     latest = _latest_checkpoint(run_dir)
-    _write_model_artifacts(run_dir, latest, os.environ.get("AIP_MODEL_DIR"))
+    model_bundle_uri = _write_model_artifacts(
+        run_dir,
+        latest,
+        os.environ.get("AIP_MODEL_DIR"),
+        run_id,
+    )
+    print(f"Model bundle saved: {model_bundle_uri}")
 
     if args.gcs_runs_uri:
         _write_run_artifacts(run_dir, f"{args.gcs_runs_uri.rstrip('/')}/{run_id}")
