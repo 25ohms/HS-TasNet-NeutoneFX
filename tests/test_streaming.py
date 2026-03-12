@@ -38,7 +38,7 @@ def test_streaming_shapes():
     assert torch.isfinite(streamed).all()
 
 
-def test_streaming_matches_offline_with_streaming_padding():
+def test_streaming_matches_stateful_reference():
     torch.manual_seed(0)
     cfg = HSTasNetConfig(
         window_size=128,
@@ -62,10 +62,15 @@ def test_streaming_matches_offline_with_streaming_padding():
         streamed_hops.append(streamer.step(hop))
     streamed = torch.cat(streamed_hops, dim=-1)
 
-    overlap = cfg.window_size - cfg.hop_size
-    leading_zeros = torch.zeros(1, cfg.audio_channels, overlap)
-    offline_input = torch.cat([leading_zeros, signal], dim=-1)
-    offline = model(offline_input, auto_curtail_length_to_multiple=False)[..., : signal.shape[-1]]
+    # Stateful streaming is not equivalent to a one-shot offline forward pass.
+    # Compare against a state-matched reference execution using model.stream_step.
+    ref_state = model.init_stream_state()
+    ref_hops = []
+    for hop_idx in range(num_hops):
+        hop = signal[..., hop_idx * cfg.hop_size : (hop_idx + 1) * cfg.hop_size]
+        y_hop, ref_state = model.stream_step(hop, ref_state)
+        ref_hops.append(y_hop)
+    offline = torch.cat(ref_hops, dim=-1)
 
     assert streamed.shape == offline.shape
     assert torch.allclose(streamed, offline, atol=1e-4, rtol=1e-4)
