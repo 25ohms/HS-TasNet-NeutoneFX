@@ -17,6 +17,7 @@ from hs_tasnet.models.modules import (
     MemoryLSTMBlock,
     SpectrogramDecoder,
     SpectrogramEncoder,
+    build_group_norm,
 )
 from hs_tasnet.utils.audio import pad_to_multiple
 
@@ -42,6 +43,7 @@ class HSTasNetConfig:
     fusion: str = "concat"
     mask_activation: str = "sigmoid"
     spec_mask_representation: str = "magnitude"
+    bottleneck_group_norm_groups: int = 0
 
 
 class HSTasNet(nn.Module):
@@ -80,6 +82,8 @@ class HSTasNet(nn.Module):
         for field_name, value in hidden_sizes.items():
             if value <= 0:
                 raise ValueError(f"model.{field_name} must be > 0")
+        if self.cfg.bottleneck_group_norm_groups < 0:
+            raise ValueError("model.bottleneck_group_norm_groups must be >= 0")
 
         self.sample_rate = self.cfg.sample_rate
         self.audio_channels = self.cfg.audio_channels
@@ -141,6 +145,15 @@ class HSTasNet(nn.Module):
             ]
         )
         self.split = BranchSplit(fused_channels, self.cfg.enc_channels, spec_channels)
+        self.shared_norm = build_group_norm(
+            fused_channels, self.cfg.bottleneck_group_norm_groups
+        )
+        self.split_conv_norm = build_group_norm(
+            self.cfg.enc_channels, self.cfg.bottleneck_group_norm_groups
+        )
+        self.split_spec_norm = build_group_norm(
+            spec_channels, self.cfg.bottleneck_group_norm_groups
+        )
         self.post_split_wave_blocks = nn.ModuleList(
             [
                 MemoryLSTMBlock(
@@ -261,7 +274,10 @@ class HSTasNet(nn.Module):
         shared_features, shared_state = self._run_block_stack(
             fused, self.shared_blocks, shared_state
         )
+        shared_features = self.shared_norm(shared_features)
         split_conv_features, split_spec_features = self.split(shared_features)
+        split_conv_features = self.split_conv_norm(split_conv_features)
+        split_spec_features = self.split_spec_norm(split_spec_features)
         split_conv_features, post_split_wave_state = self._run_block_stack(
             split_conv_features,
             self.post_split_wave_blocks,

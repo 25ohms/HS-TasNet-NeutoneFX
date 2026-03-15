@@ -55,7 +55,7 @@ def maybe_init_wandb(cfg: Dict[str, Any], run_id: str | None = None):
         return wandb.init(
             project=wandb_cfg.get("project", "hs-tasnet"),
             entity=wandb_cfg.get("entity"),
-            name=run_id,
+            name=wandb_cfg.get("name") or run_id,
             config=cfg,
         )
     except Exception as exc:

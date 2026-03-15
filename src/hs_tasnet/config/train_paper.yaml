@@ -1,11 +1,31 @@
 base: paper_hs_tasnet.yaml
 
 train:
-  epochs: 10
-  batch_size: 4
+  epochs: 360
+  batch_size: 64
   grad_accum_steps: 1
-  lr: 0.0001
-  grad_clip_norm: 1.0
+  metrics: ["l1", "sdr", "si_snr"]
+  max_batches: null
+
+optim:
+  optim: "adam"
+  lr: 0.0003
+  beta1: 0.9
+  beta2: 0.999
+  momentum: 0.9
+  weight_decay: 0.0
+  loss: "l1"
+  clip_grad: 0.0
+
+regularization:
+  singular_value:
+    enabled: false
+    weight: 0.0
+    interval: 1
+    rank: 1
+    niter: 1
+    max_entries: 0
+    target_patterns: ["conv_encoder", "conv_decoder", "split"]
 
 data:
   loader: "musdb"
@@ -14,3 +34,6 @@ data:
   musdb_val_subset: "train"
   musdb_val_split: "valid"
   tiny_dataset: false
+
+model:
+  bottleneck_group_norm_groups: 0

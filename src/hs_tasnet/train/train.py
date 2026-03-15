@@ -13,7 +13,8 @@ from hs_tasnet.losses.metrics import compute_waveform_metrics
 from hs_tasnet.models.hs_tasnet import HSTasNet, HSTasNetConfig
 from hs_tasnet.train.checkpointing import load_checkpoint, save_checkpoint
 from hs_tasnet.train.evaluate import evaluate
-from hs_tasnet.train.optim import build_optimizer, build_scheduler
+from hs_tasnet.train.optim import build_optimizer, build_scheduler, get_optim_config
+from hs_tasnet.train.regularization import compute_singular_value_penalty
 from hs_tasnet.utils.config import save_config
 from hs_tasnet.utils.device import resolve_device
 from hs_tasnet.utils.logging import (
@@ -105,6 +106,7 @@ def train(cfg: Dict, resume: Optional[str] = None) -> pathlib.Path:
 
     optimizer = build_optimizer(model, cfg)
     scheduler = build_scheduler(optimizer, cfg)
+    optim_cfg = get_optim_config(cfg)
 
     start_epoch = 0
     global_step = 0
@@ -124,22 +126,28 @@ def train(cfg: Dict, resume: Optional[str] = None) -> pathlib.Path:
 
     epochs = cfg.get("train", {}).get("epochs", 1)
     grad_accum = cfg.get("train", {}).get("grad_accum_steps", 1)
-    grad_clip_norm = cfg.get("train", {}).get("grad_clip_norm")
-    train_metric_names = cfg.get("train", {}).get("metrics", ["l1"])
-    if "l1" not in train_metric_names:
-        raise ValueError(
-            "train.metrics must include 'l1' because it is used as the optimization loss"
-        )
+    grad_clip_norm = optim_cfg.get("clip_grad", 0.0) or None
+    train_metric_names = list(cfg.get("train", {}).get("metrics", ["l1"]))
+    loss_name = str(optim_cfg.get("loss", "l1"))
+    if loss_name not in train_metric_names:
+        train_metric_names.append(loss_name)
     log_every = cfg.get("train", {}).get("log_every", 10)
     val_every = cfg.get("train", {}).get("val_every", 1)
     ckpt_every = cfg.get("train", {}).get("ckpt_every", 1)
+    max_batches = cfg.get("train", {}).get("max_batches")
     max_steps = cfg.get("train", {}).get("max_steps")
+    sv_interval = max(
+        1,
+        int(cfg.get("regularization", {}).get("singular_value", {}).get("interval", 1)),
+    )
 
     model.train()
     try:
         for epoch in range(start_epoch, epochs):
             optimizer.zero_grad()
             for batch_idx, (mixture, stems) in enumerate(loader):
+                if max_batches is not None and batch_idx >= int(max_batches):
+                    break
                 mixture = mixture.to(device)
                 stems = stems.to(device)
                 with torch.cuda.amp.autocast(enabled=scaler.is_enabled()):
@@ -152,8 +160,12 @@ def train(cfg: Dict, resume: Optional[str] = None) -> pathlib.Path:
                             "target_channel_policy", "strict"
                         ),
                     )
-                    loss = train_metrics["l1"]
-                    loss = loss / grad_accum
+                    objective = train_metrics[loss_name]
+                    if global_step % sv_interval == 0:
+                        sv_penalty = compute_singular_value_penalty(model, cfg)
+                    else:
+                        sv_penalty = torch.zeros((), device=device)
+                    loss = (objective + sv_penalty) / grad_accum
 
                 scaler.scale(loss).backward()
                 if (batch_idx + 1) % grad_accum == 0:
@@ -168,12 +180,36 @@ def train(cfg: Dict, resume: Optional[str] = None) -> pathlib.Path:
 
                 if global_step % log_every == 0:
                     train_loss = loss.item() * grad_accum
-                    logger.info("train loss=%.4f", train_loss, extra={"step": global_step})
+                    reg_value = float(sv_penalty.detach().item())
+                    lr = optimizer.param_groups[0]["lr"]
+                    logger.info(
+                        "train loss=%.4f objective=%.4f reg=%.4f lr=%.6f",
+                        train_loss,
+                        float(objective.detach().item()),
+                        reg_value,
+                        float(lr),
+                        extra={"step": global_step},
+                    )
                     if writer:
                         writer.add_scalar("train/loss", train_loss, global_step)
+                        writer.add_scalar(f"train/{loss_name}", float(objective.detach().item()), global_step)
+                        writer.add_scalar("train/singular_value_penalty", reg_value, global_step)
+                        writer.add_scalar("train/lr", float(lr), global_step)
+                        for name, value in train_metrics.items():
+                            writer.add_scalar(f"train_metrics/{name}", float(value.detach().item()), global_step)
                     if wandb_run:
                         wandb_run.log(
-                            {"train/loss": train_loss, "step": global_step},
+                            {
+                                "train/loss": train_loss,
+                                f"train/{loss_name}": float(objective.detach().item()),
+                                "train/singular_value_penalty": reg_value,
+                                "train/lr": float(lr),
+                                **{
+                                    f"train_metrics/{name}": float(value.detach().item())
+                                    for name, value in train_metrics.items()
+                                },
+                                "step": global_step,
+                            },
                             step=global_step,
                         )
 

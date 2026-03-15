@@ -10,6 +10,15 @@ from torch import nn
 from hs_tasnet.utils.audio import istft, stft
 
 
+def build_group_norm(num_channels: int, groups: int) -> nn.Module:
+    if groups <= 0:
+        return nn.Identity()
+    effective_groups = min(groups, num_channels)
+    while effective_groups > 1 and num_channels % effective_groups != 0:
+        effective_groups -= 1
+    return nn.GroupNorm(effective_groups, num_channels)
+
+
 class SpectrogramEncoder(nn.Module):
     def __init__(self, n_fft: int, hop_length: int, win_length: int | None = None):
         super().__init__()

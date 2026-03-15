@@ -41,7 +41,36 @@ Paper-faithful training config:
 hs-tasnet train --cfg src/hs_tasnet/config/train_paper.yaml
 ```
 
-`train_paper.yaml` uses a conservative default optimizer setup for stability (`train.lr=1e-4`, `train.grad_clip_norm=1.0`).
+`train_paper.yaml` now mirrors the Demucs-style training recipe more closely:
+- `train.epochs=360`
+- `train.batch_size=64`
+- `optim.optim=adam`
+- `optim.lr=3e-4`
+- `optim.beta1=0.9`
+- `optim.beta2=0.999`
+- `optim.loss=l1`
+- `optim.weight_decay=0`
+
+Training controls that are useful when SDR stalls or training becomes unstable:
+
+```bash
+hs-tasnet train --cfg src/hs_tasnet/config/train_paper.yaml \
+  --override optim.loss=mse \
+  --override optim.clip_grad=1.0 \
+  --override model.bottleneck_group_norm_groups=4 \
+  --override regularization.singular_value.enabled=true \
+  --override regularization.singular_value.weight=1e-4 \
+  --override regularization.singular_value.target_patterns='["conv_encoder","conv_decoder","split"]'
+```
+
+Those switches are intentionally opt-in. The default remains architecture-faithful, while giving you a direct way to compare:
+- pure L1 vs MSE vs SI-SNR objective
+- no norm vs bottleneck group norm
+- no spectral regularization vs low-rank singular-value penalty
+- unclipped vs clipped gradients
+- full epoch vs `train.max_batches` capped debugging runs
+
+For VM training, keep [train_paper.yaml](/Users/sahal/Desktop/ohms/code/ml-ai/HS-TasNet-NeutoneFX/src/hs_tasnet/config/train_paper.yaml) as the single ground-truth config and enable SVD and/or GN with CLI overrides.
 
 Weights & Biases logging:
 
@@ -92,6 +121,17 @@ Override any YAML value from the CLI:
 
 ```bash
 hs-tasnet train --cfg src/hs_tasnet/config/train.yaml --override train.batch_size=8
+```
+
+Demucs-style optimizer overrides:
+
+```bash
+hs-tasnet train --cfg src/hs_tasnet/config/train_paper.yaml \
+  --override optim.optim=adam \
+  --override optim.lr=3e-4 \
+  --override optim.beta1=0.9 \
+  --override optim.beta2=0.999 \
+  --override optim.loss=l1
 ```
 
 Example model-width overrides:

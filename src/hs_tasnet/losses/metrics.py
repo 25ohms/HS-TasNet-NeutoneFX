@@ -4,9 +4,9 @@ from typing import Dict, Iterable
 
 import torch
 
-from hs_tasnet.losses.waveform import l1_loss, signal_distortion_ratio
+from hs_tasnet.losses.waveform import l1_loss, mse_loss, si_snr, signal_distortion_ratio
 
-VALID_METRICS = {"l1", "sdr"}
+VALID_METRICS = {"l1", "mse", "sdr", "si_snr"}
 VALID_CHANNEL_POLICIES = {"strict", "mono_downmix", "first_channel"}
 
 
@@ -56,6 +56,10 @@ def compute_waveform_metrics(
             )
         if metric == "l1":
             values["l1"] = l1_loss(pred, target)
+        elif metric == "mse":
+            values["mse"] = mse_loss(pred, target)
         elif metric == "sdr":
             values["sdr"] = signal_distortion_ratio(pred, target)
+        elif metric == "si_snr":
+            values["si_snr"] = si_snr(pred, target)
     return values

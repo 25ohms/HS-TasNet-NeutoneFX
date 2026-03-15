@@ -18,6 +18,11 @@ def l1_loss(pred: torch.Tensor, target: torch.Tensor) -> torch.Tensor:
     return F.l1_loss(pred, target)
 
 
+def mse_loss(pred: torch.Tensor, target: torch.Tensor) -> torch.Tensor:
+    target = _align_target(pred, target)
+    return F.mse_loss(pred, target)
+
+
 def signal_distortion_ratio(
     pred: torch.Tensor, target: torch.Tensor, eps: float = 1e-8
 ) -> torch.Tensor:
