@@ -4,7 +4,7 @@ train:
   epochs: 360
   batch_size: 64
   grad_accum_steps: 1
-  metrics: ["l1", "sdr", "si_snr"]
+  metrics: ["l1"]
   max_batches: null
 
 optim:

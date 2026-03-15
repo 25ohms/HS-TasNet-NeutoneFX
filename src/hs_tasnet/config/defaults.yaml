@@ -6,7 +6,7 @@ run:
 
 device:
   name: "cuda"
-  use_amp: false
+  use_amp: null
 
 logging:
   tensorboard: true
@@ -57,6 +57,7 @@ data:
   num_workers: 2
   pin_memory: true
   prefetch_factor: 2
+  persistent_workers: true
   tiny_dataset: true
 
 train:

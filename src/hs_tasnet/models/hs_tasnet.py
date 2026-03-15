@@ -214,6 +214,34 @@ class HSTasNet(nn.Module):
             new_state.append(block_state)
         return features, new_state
 
+    def _decode_conv_batched(self, masked_conv: torch.Tensor) -> torch.Tensor:
+        batch_size, num_stems, channels, frames = masked_conv.shape
+        decoded = self.conv_decoder(
+            masked_conv.reshape(batch_size * num_stems, channels, frames)
+        )
+        return decoded.reshape(batch_size, num_stems, self.audio_channels, -1).squeeze(2)
+
+    def _decode_spec_batched(
+        self,
+        masked_spec: torch.Tensor,
+        spec_phase: torch.Tensor,
+        audio_length: int,
+    ) -> torch.Tensor:
+        batch_size, num_stems, spec_bins, spec_frames = masked_spec.shape
+        target_frames = spec_phase.shape[-1]
+        flat_spec = masked_spec.reshape(batch_size * num_stems, spec_bins, spec_frames)
+        if spec_frames != target_frames:
+            flat_spec = torch.nn.functional.interpolate(
+                flat_spec, size=target_frames, mode="linear", align_corners=False
+            )
+        flat_phase = (
+            spec_phase.unsqueeze(1)
+            .expand(batch_size, num_stems, spec_bins, target_frames)
+            .reshape(batch_size * num_stems, spec_bins, target_frames)
+        )
+        decoded = self.spec_decoder(flat_spec, flat_phase, length=audio_length)
+        return decoded.reshape(batch_size, num_stems, -1)
+
     def forward(
         self,
         audio: torch.Tensor,
@@ -304,24 +332,10 @@ class HSTasNet(nn.Module):
         masked_spec = spec_mask * spec_features.unsqueeze(1)
 
         # Decode conv path
-        conv_out = []
-        for s in range(self.num_sources):
-            decoded = self.conv_decoder(masked_conv[:, s])
-            conv_out.append(decoded)
-        conv_audio = torch.stack(conv_out, dim=1).squeeze(2)  # [B, S, T]
+        conv_audio = self._decode_conv_batched(masked_conv)  # [B, S, T]
 
         # Decode spec path
-        spec_out = []
-        spec_t = spec_phase.shape[-1]
-        for s in range(self.num_sources):
-            spec_mag_s = masked_spec[:, s]
-            if spec_mag_s.shape[-1] != spec_t:
-                spec_mag_s = torch.nn.functional.interpolate(
-                    spec_mag_s, size=spec_t, mode="linear", align_corners=False
-                )
-            decoded = self.spec_decoder(spec_mag_s, spec_phase, length=audio.shape[-1])
-            spec_out.append(decoded)
-        spec_audio = torch.stack(spec_out, dim=1)
+        spec_audio = self._decode_spec_batched(masked_spec, spec_phase, audio.shape[-1])
 
         mixed = self.combiner(conv_audio, spec_audio)
         conv_audio = conv_audio[..., :orig_len]

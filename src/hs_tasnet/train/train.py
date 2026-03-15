@@ -26,9 +26,36 @@ from hs_tasnet.utils.logging import (
 from hs_tasnet.utils.seed import set_seed
 
 
+def _resolve_amp_enabled(cfg: Dict, device: torch.device) -> bool:
+    use_amp = cfg.get("device", {}).get("use_amp")
+    if use_amp is None:
+        return device.type == "cuda"
+    return bool(use_amp) and device.type == "cuda"
+
+
+def _build_loader_kwargs(cfg: Dict) -> Dict:
+    data_cfg = cfg.get("data", {})
+    num_workers = int(data_cfg.get("num_workers", 2))
+    loader_kwargs = {
+        "batch_size": cfg.get("train", {}).get("batch_size", 4),
+        "shuffle": True,
+        "num_workers": num_workers,
+        "pin_memory": data_cfg.get("pin_memory", True),
+        "collate_fn": collate_examples,
+    }
+    if num_workers > 0:
+        loader_kwargs["prefetch_factor"] = data_cfg.get("prefetch_factor", 2)
+        loader_kwargs["persistent_workers"] = bool(
+            data_cfg.get("persistent_workers", True)
+        )
+    return loader_kwargs
+
+
 def _build_dataset(cfg: Dict, split: str):
     data_cfg = cfg.get("data", {})
-    segment_samples = int(data_cfg.get("segment_seconds", 4.0) * data_cfg.get("sample_rate", 44100))
+    segment_samples = int(
+        data_cfg.get("segment_seconds", 4.0) * data_cfg.get("sample_rate", 44100)
+    )
     loader = data_cfg.get("loader", "wav")
     if loader == "musdb":
         musdb_root = data_cfg.get("musdb_root")
@@ -85,17 +112,7 @@ def train(cfg: Dict, resume: Optional[str] = None) -> pathlib.Path:
     train_ds = _build_dataset(cfg, "train")
     val_ds = _build_dataset(cfg, "val")
 
-    num_workers = cfg.get("data", {}).get("num_workers", 2)
-    loader_kwargs = dict(
-        batch_size=cfg.get("train", {}).get("batch_size", 4),
-        shuffle=True,
-        num_workers=num_workers,
-        pin_memory=cfg.get("data", {}).get("pin_memory", True),
-        collate_fn=collate_examples,
-    )
-    if num_workers > 0:
-        loader_kwargs["prefetch_factor"] = cfg.get("data", {}).get("prefetch_factor", 2)
-    loader = DataLoader(train_ds, **loader_kwargs)
+    loader = DataLoader(train_ds, **_build_loader_kwargs(cfg))
     val_loader = DataLoader(
         val_ds,
         batch_size=cfg.get("val", {}).get("batch_size", 4),
@@ -120,9 +137,7 @@ def train(cfg: Dict, resume: Optional[str] = None) -> pathlib.Path:
     else:
         writer = None
     wandb_run = maybe_init_wandb(cfg, run_id=run_id)
-    scaler = torch.cuda.amp.GradScaler(
-        enabled=cfg.get("device", {}).get("use_amp", False) and device.type == "cuda"
-    )
+    scaler = torch.cuda.amp.GradScaler(enabled=_resolve_amp_enabled(cfg, device))
 
     epochs = cfg.get("train", {}).get("epochs", 1)
     grad_accum = cfg.get("train", {}).get("grad_accum_steps", 1)
@@ -197,7 +212,9 @@ def train(cfg: Dict, resume: Optional[str] = None) -> pathlib.Path:
                             float(objective.detach().item()),
                             global_step,
                         )
-                        writer.add_scalar("train/singular_value_penalty", reg_value, global_step)
+                        writer.add_scalar(
+                            "train/singular_value_penalty", reg_value, global_step
+                        )
                         writer.add_scalar("train/lr", float(lr), global_step)
                         for name, value in train_metrics.items():
                             writer.add_scalar(
@@ -227,7 +244,9 @@ def train(cfg: Dict, resume: Optional[str] = None) -> pathlib.Path:
 
             if (epoch + 1) % val_every == 0:
                 metrics = evaluate(model, val_loader, device, eval_cfg=cfg.get("eval", {}))
-                metric_log = " ".join(f"val {name}={value:.4f}" for name, value in metrics.items())
+                metric_log = " ".join(
+                    f"val {name}={value:.4f}" for name, value in metrics.items()
+                )
                 logger.info(metric_log, extra={"step": global_step})
                 if writer:
                     for name, value in metrics.items():
