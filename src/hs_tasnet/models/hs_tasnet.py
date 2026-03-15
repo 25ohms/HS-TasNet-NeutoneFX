@@ -221,6 +221,11 @@ class HSTasNet(nn.Module):
         )
         return decoded.reshape(batch_size, num_stems, self.audio_channels, -1).squeeze(2)
 
+    def _apply_conv_frame_rescaling(
+        self, masked_conv: torch.Tensor, frame_norms: torch.Tensor
+    ) -> torch.Tensor:
+        return masked_conv * frame_norms.unsqueeze(1)
+
     def _decode_spec_batched(
         self,
         masked_spec: torch.Tensor,
@@ -271,7 +276,9 @@ class HSTasNet(nn.Module):
         if auto_curtail_length_to_multiple:
             audio = pad_to_multiple(audio, self.cfg.hop_size)
 
-        conv_features = self.conv_encoder(audio)  # [B, Cc, Tenc]
+        conv_features, conv_frame_norms = self.conv_encoder.encode_with_norms(
+            audio
+        )  # [B, Cc, Tenc]
         spec_mag, spec_phase = self.spec_encoder(audio)  # [B, F, Tspec]
         spec_features = spec_mag
         if spec_features.shape[-1] != conv_features.shape[-1]:
@@ -329,6 +336,7 @@ class HSTasNet(nn.Module):
         # Predict masks from post-split memory features, then apply them to the
         # encoder-domain representations.
         masked_conv = conv_mask * conv_features.unsqueeze(1)
+        masked_conv = self._apply_conv_frame_rescaling(masked_conv, conv_frame_norms)
         masked_spec = spec_mask * spec_features.unsqueeze(1)
 
         # Decode conv path

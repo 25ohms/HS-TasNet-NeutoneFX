@@ -79,7 +79,7 @@ class ConvEncoder(nn.Module):
         nn.init.kaiming_uniform_(self.relu_weight, a=math.sqrt(5))
         nn.init.kaiming_uniform_(self.gate_weight, a=math.sqrt(5))
 
-    def forward(self, audio: torch.Tensor) -> torch.Tensor:
+    def encode_with_norms(self, audio: torch.Tensor) -> Tuple[torch.Tensor, torch.Tensor]:
         if audio.dim() == 2:
             audio = audio.unsqueeze(1)
         if audio.shape[-1] < self.kernel_size:
@@ -103,7 +103,12 @@ class ConvEncoder(nn.Module):
         relu_branch = F.linear(segments, relu_weight)
         gate_branch = F.linear(segments, gate_weight)
         encoded = F.relu(relu_branch) * torch.sigmoid(gate_branch)
-        return encoded.transpose(1, 2).contiguous()
+        frame_norms = norms.squeeze(-1)
+        return encoded.transpose(1, 2).contiguous(), frame_norms
+
+    def forward(self, audio: torch.Tensor) -> torch.Tensor:
+        encoded, _ = self.encode_with_norms(audio)
+        return encoded
 
 
 class ConvDecoder(nn.Module):
