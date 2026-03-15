@@ -25,7 +25,8 @@ def get_optim_config(cfg: Dict) -> Dict:
     loss_name = str(optim_cfg["loss"]).lower()
     if loss_name not in VALID_TRAINING_LOSSES:
         raise ValueError(
-            f"Unsupported optim.loss '{loss_name}'. Expected one of {sorted(VALID_TRAINING_LOSSES)}."
+            "Unsupported optim.loss "
+            f"'{loss_name}'. Expected one of {sorted(VALID_TRAINING_LOSSES)}."
         )
     optim_cfg["loss"] = loss_name
     return optim_cfg

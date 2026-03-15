@@ -192,11 +192,19 @@ def train(cfg: Dict, resume: Optional[str] = None) -> pathlib.Path:
                     )
                     if writer:
                         writer.add_scalar("train/loss", train_loss, global_step)
-                        writer.add_scalar(f"train/{loss_name}", float(objective.detach().item()), global_step)
+                        writer.add_scalar(
+                            f"train/{loss_name}",
+                            float(objective.detach().item()),
+                            global_step,
+                        )
                         writer.add_scalar("train/singular_value_penalty", reg_value, global_step)
                         writer.add_scalar("train/lr", float(lr), global_step)
                         for name, value in train_metrics.items():
-                            writer.add_scalar(f"train_metrics/{name}", float(value.detach().item()), global_step)
+                            writer.add_scalar(
+                                f"train_metrics/{name}",
+                                float(value.detach().item()),
+                                global_step,
+                            )
                     if wandb_run:
                         wandb_run.log(
                             {
