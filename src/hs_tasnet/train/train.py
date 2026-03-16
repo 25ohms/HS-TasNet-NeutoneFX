@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import pathlib
 import time
-from typing import Dict, Optional
+from typing import Callable, Dict, Optional
 
 import torch
 from torch.utils.data import DataLoader
@@ -11,7 +11,11 @@ from hs_tasnet.data.collate import collate_examples
 from hs_tasnet.data.datasets import AudioStemDataset, MusdbStemDataset, TinySyntheticDataset
 from hs_tasnet.losses.metrics import compute_waveform_metrics
 from hs_tasnet.models.hs_tasnet import HSTasNet, HSTasNetConfig
-from hs_tasnet.train.checkpointing import load_checkpoint, save_checkpoint
+from hs_tasnet.train.checkpointing import (
+    load_checkpoint,
+    prune_checkpoints,
+    save_checkpoint,
+)
 from hs_tasnet.train.evaluate import evaluate
 from hs_tasnet.train.optim import build_optimizer, build_scheduler, get_optim_config
 from hs_tasnet.train.regularization import compute_singular_value_penalty
@@ -95,7 +99,11 @@ def _build_dataset(cfg: Dict, split: str):
     )
 
 
-def train(cfg: Dict, resume: Optional[str] = None) -> pathlib.Path:
+def train(
+    cfg: Dict,
+    resume: Optional[str] = None,
+    epoch_end_callback: Optional[Callable[[int, int, pathlib.Path], None]] = None,
+) -> pathlib.Path:
     logger = setup_logger()
     log_config(logger, cfg)
     set_seed(cfg.get("seed", 42))
@@ -149,6 +157,7 @@ def train(cfg: Dict, resume: Optional[str] = None) -> pathlib.Path:
     log_every = cfg.get("train", {}).get("log_every", 10)
     val_every = cfg.get("train", {}).get("val_every", 1)
     ckpt_every = cfg.get("train", {}).get("ckpt_every", 1)
+    max_checkpoints = cfg.get("train", {}).get("max_checkpoints")
     max_batches = cfg.get("train", {}).get("max_batches")
     max_steps = cfg.get("train", {}).get("max_steps")
     sv_interval = max(
@@ -267,9 +276,13 @@ def train(cfg: Dict, resume: Optional[str] = None) -> pathlib.Path:
                     global_step,
                     cfg,
                 )
+                prune_checkpoints(run_dir, max_checkpoints)
 
             if max_steps and global_step >= max_steps:
                 break
+
+            if epoch_end_callback is not None:
+                epoch_end_callback(epoch + 1, global_step, run_dir)
     finally:
         if writer:
             writer.close()

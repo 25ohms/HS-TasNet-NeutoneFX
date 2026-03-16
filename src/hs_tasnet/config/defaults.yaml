@@ -71,6 +71,7 @@ train:
   log_every: 10
   val_every: 1
   ckpt_every: 1
+  max_checkpoints: null
   max_batches: null
   max_steps: null
 

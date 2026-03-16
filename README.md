@@ -214,6 +214,9 @@ Model artifacts are always written to a timestamped bundle directory under `AIP_
 - `.../model/20260312_153012_vertex-run-1234/model.pt`
 - `.../model/20260312_153012_vertex-run-1234/config.yaml`
 
+To reduce worker disk usage during long Vertex runs, the paper training preset now saves checkpoints every 5 epochs and retains only the latest 2 checkpoint files locally. You can override this with `train.ckpt_every` and `train.max_checkpoints`.
+If you pass `--gcs-runs-uri`, the Vertex worker now syncs the run directory to GCS every epoch by default; set `vertex.train.gcs_sync_every_epochs` in the orchestrator config to use a different interval.
+
 Build and push the training image to Artifact Registry:
 
 ```bash

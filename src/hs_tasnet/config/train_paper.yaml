@@ -5,6 +5,8 @@ train:
   batch_size: 64
   grad_accum_steps: 1
   metrics: ["l1"]
+  ckpt_every: 5
+  max_checkpoints: 2
   max_batches: null
 
 optim:

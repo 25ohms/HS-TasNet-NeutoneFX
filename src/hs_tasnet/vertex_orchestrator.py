@@ -137,6 +137,9 @@ def main() -> None:
     gcs_runs_uri = args.gcs_runs_uri or get_nested(
         orchestrator_cfg, "vertex", "train", "gcs_runs_uri"
     )
+    gcs_sync_every_epochs = get_nested(
+        orchestrator_cfg, "vertex", "train", "gcs_sync_every_epochs"
+    )
     machine_type = args.machine_type or get_nested(
         orchestrator_cfg, "vertex", "train", "machine_type"
     ) or "g2-standard-4"
@@ -187,6 +190,10 @@ def main() -> None:
 
     if gcs_runs_uri:
         worker_args.extend(["--gcs-runs-uri", gcs_runs_uri])
+        if gcs_sync_every_epochs is not None:
+            worker_args.extend(
+                ["--gcs-sync-every-epochs", str(int(gcs_sync_every_epochs))]
+            )
 
     if args.override:
         for ov in args.override:
