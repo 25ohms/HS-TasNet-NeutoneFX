@@ -23,7 +23,10 @@ def _ensure_gcs_sync_helpers() -> tuple[Callable[[str, Path], None], Callable[[P
         return sync_gcs_to_local, sync_local_to_gcs
 
     try:
-        from scripts.gcs_sync import sync_gcs_to_local as download_fn, sync_local_to_gcs as upload_fn
+        from scripts.gcs_sync import (
+            sync_gcs_to_local as download_fn,
+            sync_local_to_gcs as upload_fn,
+        )
     except Exception:
         # Fallback if scripts isn't on the import path
         import importlib.util
