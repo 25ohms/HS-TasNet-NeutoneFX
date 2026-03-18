@@ -18,6 +18,15 @@ def _load_vertex_worker_module():
     return module
 
 
+def _load_vertex_eval_worker_module():
+    worker_path = Path(__file__).resolve().parents[1] / "scripts" / "vertex_eval_worker.py"
+    spec = importlib.util.spec_from_file_location("vertex_eval_worker_for_test", worker_path)
+    assert spec is not None and spec.loader is not None
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
+
 def test_orchestrator_config_helpers(tmp_path):
     cfg_path = tmp_path / "config.yaml"
     cfg_path.write_text(
@@ -70,3 +79,29 @@ def test_vertex_worker_periodic_sync_callback_rejects_invalid_interval():
 
     with pytest.raises(ValueError):
         worker_module._build_periodic_sync_callback("gs://bucket/runs/job-1", 0)
+
+
+def test_vertex_eval_worker_stages_local_metrics_schema_without_import_uri(
+    monkeypatch, tmp_path: Path
+):
+    eval_worker_module = _load_vertex_eval_worker_module()
+    source = tmp_path / "metrics.yaml"
+    source.write_text("title: custom\n", encoding="utf-8")
+
+    synced = []
+
+    def fake_sync_local_to_gcs(src: Path, gcs_uri: str) -> None:
+        synced.append((src, gcs_uri))
+
+    monkeypatch.setattr(eval_worker_module, "sync_local_to_gcs", fake_sync_local_to_gcs)
+
+    import_uri = eval_worker_module._stage_metrics_schema(
+        local_output_dir=tmp_path / "output",
+        eval_output_uri="gs://bucket/evals/job-1",
+        metrics_schema_uri=None,
+        metrics_schema_local_path=str(source),
+    )
+
+    assert import_uri is None
+    assert synced == [(tmp_path / "output", "gs://bucket/evals/job-1")]
+    assert (tmp_path / "output" / "metrics_schema.yaml").exists()

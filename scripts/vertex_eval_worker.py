@@ -232,7 +232,7 @@ def _stage_metrics_schema(
     staged_schema = local_output_dir / "metrics_schema.yaml"
     staged_schema.write_text(source.read_text(encoding="utf-8"), encoding="utf-8")
     sync_local_to_gcs(local_output_dir, eval_output_uri)
-    return f"{eval_output_uri.rstrip('/')}/metrics_schema.yaml"
+    return None
 
 
 def main() -> None:
