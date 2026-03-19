@@ -136,11 +136,8 @@ def main() -> None:
     parser.add_argument("--cfg", default=None)
     parser.add_argument("--dataset-uri", default=None)
     parser.add_argument("--model-uri", default=None)
-    parser.add_argument("--model-resource-name", default=None)
     parser.add_argument("--eval-output-uri", default=None)
     parser.add_argument("--evaluation-display-name", default=None)
-    parser.add_argument("--metrics-schema-uri", default=None)
-    parser.add_argument("--metrics-schema-local-path", default=None)
     parser.add_argument("--override", action="append")
     args = parser.parse_args()
 
@@ -176,11 +173,6 @@ def main() -> None:
         or get_nested(orchestrator_cfg, "vertex", "eval", "model_uri")
         or os.environ.get("MODEL_URI")
     )
-    model_resource_name = (
-        args.model_resource_name
-        or get_nested(orchestrator_cfg, "vertex", "eval", "model_resource_name")
-        or os.environ.get("MODEL_RESOURCE_NAME")
-    )
     eval_output_uri = (
         args.eval_output_uri
         or get_nested(orchestrator_cfg, "vertex", "eval", "eval_output_uri")
@@ -195,15 +187,6 @@ def main() -> None:
         args.evaluation_display_name
         or get_nested(orchestrator_cfg, "vertex", "eval", "evaluation_display_name")
         or os.environ.get("EVAL_DISPLAY_NAME")
-    )
-    metrics_schema_uri = (
-        args.metrics_schema_uri
-        or get_nested(orchestrator_cfg, "vertex", "eval", "metrics_schema_uri")
-        or os.environ.get("METRICS_SCHEMA_URI")
-    )
-    metrics_schema_local_path = (
-        args.metrics_schema_local_path
-        or get_nested(orchestrator_cfg, "vertex", "eval", "metrics_schema_local_path")
     )
     network = (
         args.network
@@ -242,7 +225,6 @@ def main() -> None:
             ("CONTAINER_URI", container_uri),
             ("DATASET_URI", dataset_uri),
             ("MODEL_URI", model_uri),
-            ("MODEL_RESOURCE_NAME", model_resource_name),
             ("EVAL_OUTPUT_URI", eval_output_uri),
             ("SERVICE_ACCOUNT", service_account),
         ]
@@ -265,17 +247,11 @@ def main() -> None:
         dataset_uri,
         "--model-uri",
         model_uri,
-        "--model-resource-name",
-        model_resource_name,
         "--eval-output-uri",
         eval_output_uri,
     ]
     if evaluation_display_name:
         worker_args.extend(["--evaluation-display-name", evaluation_display_name])
-    if metrics_schema_uri:
-        worker_args.extend(["--metrics-schema-uri", metrics_schema_uri])
-    if metrics_schema_local_path:
-        worker_args.extend(["--metrics-schema-local-path", metrics_schema_local_path])
     if args.override:
         for override in args.override:
             worker_args.extend(["--override", override])
@@ -297,7 +273,7 @@ def main() -> None:
     )
 
     print(f"Custom job submitted: {job['name']}")
-    print(f"Model evaluation target: {model_resource_name}")
+    print(f"Evaluation artifacts target: {eval_output_uri}")
 
 
 if __name__ == "__main__":

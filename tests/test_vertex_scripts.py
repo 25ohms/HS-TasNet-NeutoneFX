@@ -2,6 +2,8 @@ from __future__ import annotations
 
 import importlib
 import importlib.util
+import sys
+import types
 from pathlib import Path
 
 import pytest
@@ -19,6 +21,14 @@ def _load_vertex_worker_module():
 
 
 def _load_vertex_eval_worker_module():
+    gcs_sync_module = types.ModuleType("scripts.gcs_sync")
+    gcs_sync_module.sync_gcs_to_local = lambda _uri, _dest: None
+    gcs_sync_module.sync_local_to_gcs = lambda _src, _uri: None
+    scripts_package = types.ModuleType("scripts")
+    scripts_package.gcs_sync = gcs_sync_module
+    sys.modules["scripts"] = scripts_package
+    sys.modules["scripts.gcs_sync"] = gcs_sync_module
+
     worker_path = Path(__file__).resolve().parents[1] / "scripts" / "vertex_eval_worker.py"
     spec = importlib.util.spec_from_file_location("vertex_eval_worker_for_test", worker_path)
     assert spec is not None and spec.loader is not None

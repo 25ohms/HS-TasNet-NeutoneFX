@@ -23,7 +23,6 @@ from hs_tasnet.utils.seed import set_seed
 
 try:
     from scripts.gcs_sync import sync_gcs_to_local, sync_local_to_gcs
-    from scripts.vertex_model_registry import import_model_evaluation
 except Exception:
     import importlib.util
     import sys
@@ -37,16 +36,6 @@ except Exception:
     gcs_spec.loader.exec_module(gcs_module)  # type: ignore[union-attr]
     sync_gcs_to_local = gcs_module.sync_gcs_to_local  # type: ignore[attr-defined]
     sync_local_to_gcs = gcs_module.sync_local_to_gcs  # type: ignore[attr-defined]
-
-    registry_spec = importlib.util.spec_from_file_location(
-        "vertex_model_registry", str(base_dir / "vertex_model_registry.py")
-    )
-    registry_module = importlib.util.module_from_spec(registry_spec)  # type: ignore[arg-type]
-    sys.modules["vertex_model_registry"] = registry_module
-    assert registry_spec and registry_spec.loader
-    registry_spec.loader.exec_module(registry_module)  # type: ignore[union-attr]
-    import_model_evaluation = registry_module.import_model_evaluation  # type: ignore[attr-defined]
-
 
 def _is_gcs_uri(path: str | None) -> bool:
     return bool(path and path.startswith("gs://"))
@@ -241,18 +230,12 @@ def main() -> None:
     parser.add_argument("--region", required=True)
     parser.add_argument("--model-uri", required=True)
     parser.add_argument("--dataset-uri", required=True)
-    parser.add_argument("--model-resource-name", required=True)
     parser.add_argument("--eval-output-uri", required=True)
     parser.add_argument("--cfg", default="src/hs_tasnet/config/eval.yaml")
     parser.add_argument("--data-dir", default="/mnt/data/musdb18")
     parser.add_argument("--model-dir", default="/mnt/model")
     parser.add_argument("--output-dir", default="/mnt/eval")
     parser.add_argument("--evaluation-display-name", default=None)
-    parser.add_argument("--metrics-schema-uri", default=None)
-    parser.add_argument(
-        "--metrics-schema-local-path",
-        default="src/hs_tasnet/config/vertex_model_evaluation_metrics.yaml",
-    )
     parser.add_argument("--override", action="append")
     args = parser.parse_args()
 
@@ -304,36 +287,10 @@ def main() -> None:
     _write_json(local_output_dir / "metrics.json", metrics_payload)
     _write_jsonl(local_output_dir / "row_metrics.jsonl", rows)
 
-    metrics_schema_uri = _stage_metrics_schema(
-        local_output_dir=local_output_dir,
-        eval_output_uri=args.eval_output_uri,
-        metrics_schema_uri=args.metrics_schema_uri,
-        metrics_schema_local_path=args.metrics_schema_local_path,
-    )
-    sync_local_to_gcs(local_output_dir, args.eval_output_uri)
-    row_metrics_uri = f"{args.eval_output_uri.rstrip('/')}/row_metrics.jsonl"
-
-    evaluation_display_name = args.evaluation_display_name or run_id
-    metadata = {
-        "evaluation_dataset_type": data_loader,
-        "evaluation_dataset_path": args.dataset_uri,
-        "checkpoint_uri": args.model_uri,
-        "row_based_metrics_path": row_metrics_uri,
-        "run_id": run_id,
-    }
-    import_result = import_model_evaluation(
-        region=args.region,
-        model_resource_name=args.model_resource_name,
-        evaluation_display_name=evaluation_display_name,
-        metrics=metrics,
-        metadata=metadata,
-        metrics_schema_uri=metrics_schema_uri,
-    )
-    _write_json(local_output_dir / "model_registry_import.json", import_result)
     sync_local_to_gcs(local_output_dir, args.eval_output_uri)
 
     logger.info("Eval metrics: %s", metrics)
-    logger.info("Vertex model evaluation import completed for %s", args.model_resource_name)
+    logger.info("Evaluation artifacts uploaded to %s", args.eval_output_uri)
 
 
 if __name__ == "__main__":
