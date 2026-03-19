@@ -6,7 +6,7 @@ run:
 
 device:
   name: "cuda"
-  use_amp: false
+  use_amp: null
 
 logging:
   tensorboard: true
@@ -14,6 +14,7 @@ logging:
     enabled: false
     project: "hs-tasnet"
     entity: null
+    name: null
 
 model:
   sample_rate: 44100
@@ -22,11 +23,20 @@ model:
   stems: ["drums", "bass", "vocals", "other"]
   window_size: 1024
   hop_size: 512
-  enc_channels: 64
-  lstm_hidden: 128
-  lstm_layers: 2
+  enc_channels: 1024
+  wave_lstm_hidden: 128
+  spec_lstm_hidden: 128
+  shared_lstm_hidden: 256
+  post_split_wave_lstm_hidden: 128
+  post_split_spec_lstm_hidden: 128
+  wave_num_blocks: 1
+  spec_num_blocks: 1
+  shared_num_blocks: 1
+  post_split_num_blocks: 1
   fusion: "concat"  # concat | sum
   mask_activation: "sigmoid"
+  spec_mask_representation: "magnitude"
+  bottleneck_group_norm_groups: 0
 
 data:
   loader: "wav"  # wav | musdb
@@ -39,11 +49,15 @@ data:
   val_dir: null
   musdb_root: null
   musdb_is_wav: false
-  musdb_val_subset: "test"   # "test" or "train"
+  musdb_val_subset: "train"  # "train" for validation by default; "test" for final test-only eval
   musdb_val_split: "valid"   # used only when musdb_val_subset="train"
+  musdb_fallback_to_ratio_split: true
+  musdb_train_fraction: 0.8
+  musdb_split_seed: 42
   num_workers: 2
   pin_memory: true
   prefetch_factor: 2
+  persistent_workers: true
   tiny_dataset: true
 
 train:
@@ -51,10 +65,35 @@ train:
   epochs: 5
   lr: 0.001
   grad_accum_steps: 1
+  grad_clip_norm: null
+  metrics: ["l1"]
+  target_channel_policy: "strict"  # strict | mono_downmix | first_channel
   log_every: 10
   val_every: 1
   ckpt_every: 1
+  max_checkpoints: null
+  max_batches: null
   max_steps: null
+
+optim:
+  optim: "adam"
+  lr: 0.001
+  beta1: 0.9
+  beta2: 0.999
+  momentum: 0.9
+  weight_decay: 0.0
+  loss: "l1"  # l1 | mse | si_snr
+  clip_grad: 0.0
+
+regularization:
+  singular_value:
+    enabled: false
+    weight: 0.0
+    interval: 1
+    rank: 1
+    niter: 1
+    max_entries: 0
+    target_patterns: []
 
 val:
   batch_size: 4
@@ -62,6 +101,8 @@ val:
 eval:
   checkpoint: null
   batch_size: 4
+  metrics: ["l1", "sdr"]
+  target_channel_policy: "strict"  # strict | mono_downmix | first_channel
 
 infer:
   checkpoint: null

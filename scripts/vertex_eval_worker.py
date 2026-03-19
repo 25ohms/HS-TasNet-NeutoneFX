@@ -13,7 +13,7 @@ import numpy as np
 import torch
 
 from hs_tasnet.data.datasets import AudioStemDataset, MusdbStemDataset, TinySyntheticDataset
-from hs_tasnet.losses.waveform import l1_loss, signal_distortion_ratio
+from hs_tasnet.losses.metrics import compute_waveform_metrics
 from hs_tasnet.models.hs_tasnet import HSTasNet, HSTasNetConfig
 from hs_tasnet.train.checkpointing import load_checkpoint
 from hs_tasnet.utils.config import apply_overrides, load_config, save_config
@@ -23,7 +23,6 @@ from hs_tasnet.utils.seed import set_seed
 
 try:
     from scripts.gcs_sync import sync_gcs_to_local, sync_local_to_gcs
-    from scripts.vertex_model_registry import import_model_evaluation
 except Exception:
     import importlib.util
     import sys
@@ -38,16 +37,6 @@ except Exception:
     sync_gcs_to_local = gcs_module.sync_gcs_to_local  # type: ignore[attr-defined]
     sync_local_to_gcs = gcs_module.sync_local_to_gcs  # type: ignore[attr-defined]
 
-    registry_spec = importlib.util.spec_from_file_location(
-        "vertex_model_registry", str(base_dir / "vertex_model_registry.py")
-    )
-    registry_module = importlib.util.module_from_spec(registry_spec)  # type: ignore[arg-type]
-    sys.modules["vertex_model_registry"] = registry_module
-    assert registry_spec and registry_spec.loader
-    registry_spec.loader.exec_module(registry_module)  # type: ignore[union-attr]
-    import_model_evaluation = registry_module.import_model_evaluation  # type: ignore[attr-defined]
-
-
 def _is_gcs_uri(path: str | None) -> bool:
     return bool(path and path.startswith("gs://"))
 
@@ -61,6 +50,21 @@ def _prepare_local_copy(src: str, dest: Path) -> Path:
         shutil.copytree(source_path, dest, dirs_exist_ok=True)
         return dest
     raise FileNotFoundError(f"Expected a directory at {src}")
+
+
+def _resolve_model_bundle_dir(model_root: Path) -> Path:
+    direct_checkpoint = model_root / "model.pt"
+    if direct_checkpoint.exists():
+        return model_root
+
+    candidates = []
+    for child in model_root.iterdir():
+        if child.is_dir() and (child / "model.pt").exists():
+            candidates.append(child)
+    if not candidates:
+        raise FileNotFoundError(f"Missing checkpoint under {model_root}")
+    candidates.sort(key=lambda p: p.name)
+    return candidates[-1]
 
 
 def _load_runtime_config(
@@ -96,6 +100,9 @@ def _build_dataset(cfg: Dict[str, Any]):
             sample_rate=data_cfg.get("sample_rate", 44100),
             audio_channels=data_cfg.get("audio_channels", 1),
             is_wav=bool(data_cfg.get("musdb_is_wav", False)),
+            fallback_to_ratio_split=bool(data_cfg.get("musdb_fallback_to_ratio_split", True)),
+            train_fraction=float(data_cfg.get("musdb_train_fraction", 0.8)),
+            split_seed=int(data_cfg.get("musdb_split_seed", 42)),
         )
     if data_cfg.get("tiny_dataset", False) or not data_cfg.get("val_dir"):
         return TinySyntheticDataset(
@@ -145,11 +152,12 @@ def _audio_example_from_track(dataset: Any, index: int) -> Tuple[str, torch.Tens
 
 
 def _evaluate_dataset(
-    model: torch.nn.Module, dataset: Any, device: torch.device
+    model: torch.nn.Module, dataset: Any, device: torch.device, eval_cfg: Dict[str, Any]
 ) -> Tuple[Dict[str, float], List[Dict[str, Any]]]:
+    metric_names = eval_cfg.get("metrics", ["l1", "sdr"])
+    target_channel_policy = eval_cfg.get("target_channel_policy", "strict")
     rows: List[Dict[str, Any]] = []
-    total_l1 = 0.0
-    total_sdr = 0.0
+    totals: Dict[str, float] = {name: 0.0 for name in metric_names}
 
     model.eval()
     with torch.no_grad():
@@ -157,27 +165,28 @@ def _evaluate_dataset(
             track_id, mixture, stems = _audio_example_from_track(dataset, index)
             mixture = mixture.unsqueeze(0).to(device)
             stems = stems.unsqueeze(0).to(device)
-            pred, _ = model(mixture)
-            l1_value = float(l1_loss(pred, stems).item())
-            sdr_value = float(signal_distortion_ratio(pred, stems).item())
-            total_l1 += l1_value
-            total_sdr += sdr_value
+            pred = model(mixture)
+            metric_values = compute_waveform_metrics(
+                pred,
+                stems,
+                metrics=metric_names,
+                target_channel_policy=target_channel_policy,
+            )
+            row_metric_values = {
+                name: float(value.item()) for name, value in metric_values.items()
+            }
+            for metric_name, metric_value in row_metric_values.items():
+                totals[metric_name] += metric_value
             rows.append(
                 {
                     "track_id": track_id,
-                    "metrics": {
-                        "l1": l1_value,
-                        "sdr": sdr_value,
-                    },
+                    "metrics": row_metric_values,
                 }
             )
     model.train()
 
-    metrics = {
-        "l1": total_l1 / max(len(rows), 1),
-        "sdr": total_sdr / max(len(rows), 1),
-        "num_examples": len(rows),
-    }
+    metrics = {name: total / max(len(rows), 1) for name, total in totals.items()}
+    metrics["num_examples"] = len(rows)
     return metrics, rows
 
 
@@ -194,51 +203,24 @@ def _write_jsonl(path: Path, rows: List[Dict[str, Any]]) -> None:
             handle.write("\n")
 
 
-def _stage_metrics_schema(
-    local_output_dir: Path,
-    eval_output_uri: str,
-    metrics_schema_uri: str | None,
-    metrics_schema_local_path: str | None,
-) -> str | None:
-    if metrics_schema_uri:
-        return metrics_schema_uri
-    if not metrics_schema_local_path:
-        return None
-
-    source = Path(metrics_schema_local_path)
-    if not source.exists():
-        raise FileNotFoundError(f"Missing metrics schema at {source}")
-
-    staged_schema = local_output_dir / "metrics_schema.yaml"
-    staged_schema.write_text(source.read_text(encoding="utf-8"), encoding="utf-8")
-    sync_local_to_gcs(local_output_dir, eval_output_uri)
-    return f"{eval_output_uri.rstrip('/')}/metrics_schema.yaml"
-
-
 def main() -> None:
     parser = argparse.ArgumentParser()
     parser.add_argument("--project", required=True)
     parser.add_argument("--region", required=True)
     parser.add_argument("--model-uri", required=True)
     parser.add_argument("--dataset-uri", required=True)
-    parser.add_argument("--model-resource-name", required=True)
     parser.add_argument("--eval-output-uri", required=True)
     parser.add_argument("--cfg", default="src/hs_tasnet/config/eval.yaml")
     parser.add_argument("--data-dir", default="/mnt/data/musdb18")
     parser.add_argument("--model-dir", default="/mnt/model")
     parser.add_argument("--output-dir", default="/mnt/eval")
-    parser.add_argument("--evaluation-display-name", default=None)
-    parser.add_argument("--metrics-schema-uri", default=None)
-    parser.add_argument(
-        "--metrics-schema-local-path",
-        default="src/hs_tasnet/config/vertex_model_evaluation_metrics.yaml",
-    )
     parser.add_argument("--override", action="append")
     args = parser.parse_args()
 
     logger = setup_logger()
     run_id = os.environ.get("AIP_JOB_NAME") or f"vertex-eval-{int(time.time())}"
-    local_model_dir = _prepare_local_copy(args.model_uri, Path(args.model_dir))
+    local_model_root = _prepare_local_copy(args.model_uri, Path(args.model_dir))
+    local_model_dir = _resolve_model_bundle_dir(local_model_root)
     local_data_dir = _prepare_local_copy(args.dataset_uri, Path(args.data_dir))
 
     local_output_dir = Path(args.output_dir) / run_id
@@ -252,8 +234,6 @@ def main() -> None:
     ]
 
     checkpoint_path = local_model_dir / "model.pt"
-    if not checkpoint_path.exists():
-        raise FileNotFoundError(f"Missing checkpoint at {checkpoint_path}")
 
     cfg_probe = _load_runtime_config(local_model_dir, args.cfg, [])
     data_loader = cfg_probe.get("data", {}).get("loader", "wav")
@@ -273,10 +253,11 @@ def main() -> None:
     load_checkpoint(checkpoint_path, model, map_location=device, restore_rng=False)
 
     dataset = _build_dataset(cfg)
-    metrics, rows = _evaluate_dataset(model, dataset, device)
+    metrics, rows = _evaluate_dataset(model, dataset, device, cfg.get("eval", {}))
 
     metrics_payload = {
         "checkpoint_path": checkpoint_path.as_posix(),
+        "model_bundle_dir": local_model_dir.as_posix(),
         "dataset_uri": args.dataset_uri,
         "loader": data_loader,
         "metrics": metrics,
@@ -284,36 +265,10 @@ def main() -> None:
     _write_json(local_output_dir / "metrics.json", metrics_payload)
     _write_jsonl(local_output_dir / "row_metrics.jsonl", rows)
 
-    metrics_schema_uri = _stage_metrics_schema(
-        local_output_dir=local_output_dir,
-        eval_output_uri=args.eval_output_uri,
-        metrics_schema_uri=args.metrics_schema_uri,
-        metrics_schema_local_path=args.metrics_schema_local_path,
-    )
-    sync_local_to_gcs(local_output_dir, args.eval_output_uri)
-    row_metrics_uri = f"{args.eval_output_uri.rstrip('/')}/row_metrics.jsonl"
-
-    evaluation_display_name = args.evaluation_display_name or run_id
-    metadata = {
-        "evaluation_dataset_type": data_loader,
-        "evaluation_dataset_path": args.dataset_uri,
-        "checkpoint_uri": args.model_uri,
-        "row_based_metrics_path": row_metrics_uri,
-        "run_id": run_id,
-    }
-    import_result = import_model_evaluation(
-        region=args.region,
-        model_resource_name=args.model_resource_name,
-        evaluation_display_name=evaluation_display_name,
-        metrics=metrics,
-        metadata=metadata,
-        metrics_schema_uri=metrics_schema_uri,
-    )
-    _write_json(local_output_dir / "model_registry_import.json", import_result)
     sync_local_to_gcs(local_output_dir, args.eval_output_uri)
 
     logger.info("Eval metrics: %s", metrics)
-    logger.info("Vertex model evaluation import completed for %s", args.model_resource_name)
+    logger.info("Evaluation artifacts uploaded to %s", args.eval_output_uri)
 
 
 if __name__ == "__main__":

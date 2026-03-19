@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import argparse
+import inspect
 import os
 import subprocess
 from typing import List
@@ -136,6 +137,9 @@ def main() -> None:
     gcs_runs_uri = args.gcs_runs_uri or get_nested(
         orchestrator_cfg, "vertex", "train", "gcs_runs_uri"
     )
+    gcs_sync_every_epochs = get_nested(
+        orchestrator_cfg, "vertex", "train", "gcs_sync_every_epochs"
+    )
     machine_type = args.machine_type or get_nested(
         orchestrator_cfg, "vertex", "train", "machine_type"
     ) or "g2-standard-4"
@@ -186,22 +190,44 @@ def main() -> None:
 
     if gcs_runs_uri:
         worker_args.extend(["--gcs-runs-uri", gcs_runs_uri])
+        if gcs_sync_every_epochs is not None:
+            worker_args.extend(
+                ["--gcs-sync-every-epochs", str(int(gcs_sync_every_epochs))]
+            )
 
     if args.override:
         for ov in args.override:
             worker_args.extend(["--override", ov])
 
-    model = job.run(
-        model_display_name=model_display_name,
-        replica_count=int(replica_count),
-        machine_type=machine_type,
-        accelerator_type=accelerator_type,
-        accelerator_count=int(accelerator_count),
-        base_output_dir=base_output_dir,
-        service_account=service_account,
-        network=network,
-        args=worker_args,
-    )
+    run_kwargs = {
+        "model_display_name": model_display_name,
+        "replica_count": int(replica_count),
+        "machine_type": machine_type,
+        "accelerator_type": accelerator_type,
+        "accelerator_count": int(accelerator_count),
+        "base_output_dir": base_output_dir,
+        "service_account": service_account,
+        "network": network,
+        "args": worker_args,
+    }
+
+    env_vars = {}
+    wandb_api_key = os.environ.get("WANDB_API_KEY")
+    if wandb_api_key:
+        env_vars["WANDB_API_KEY"] = wandb_api_key
+
+    if env_vars:
+        run_sig = inspect.signature(job.run)
+        if "environment_variables" in run_sig.parameters:
+            run_kwargs["environment_variables"] = env_vars
+        else:
+            print(
+                "Warning: installed google-cloud-aiplatform does not expose "
+                "`environment_variables` on CustomContainerTrainingJob.run; "
+                "WANDB_API_KEY cannot be forwarded by this orchestrator version."
+            )
+
+    model = job.run(**run_kwargs)
 
     print(f"Model registered: {model.resource_name}")
 

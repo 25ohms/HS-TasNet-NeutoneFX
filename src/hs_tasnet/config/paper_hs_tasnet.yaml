@@ -1,0 +1,13 @@
+base: defaults.yaml
+
+model:
+  wave_lstm_hidden: 500
+  spec_lstm_hidden: 500
+  shared_lstm_hidden: 1000
+  post_split_wave_lstm_hidden: 500
+  post_split_spec_lstm_hidden: 500
+  wave_num_blocks: 1
+  spec_num_blocks: 1
+  shared_num_blocks: 1
+  post_split_num_blocks: 1
+  spec_mask_representation: "magnitude"

@@ -29,10 +29,58 @@ Notes:
 
 ## Quickstart
 
-Training on the tiny synthetic dataset:
+Training on the tiny synthetic dataset (lightweight baseline/dev):
 
 ```bash
 hs-tasnet train --cfg src/hs_tasnet/config/train.yaml
+```
+
+Paper-faithful training config:
+
+```bash
+hs-tasnet train --cfg src/hs_tasnet/config/train_paper.yaml
+```
+
+`train_paper.yaml` now mirrors the Demucs-style training recipe more closely:
+- `train.epochs=360`
+- `train.batch_size=64`
+- `optim.optim=adam`
+- `optim.lr=3e-4`
+- `optim.beta1=0.9`
+- `optim.beta2=0.999`
+- `optim.loss=l1`
+- `optim.weight_decay=0`
+
+Training controls that are useful when SDR stalls or training becomes unstable:
+
+```bash
+hs-tasnet train --cfg src/hs_tasnet/config/train_paper.yaml \
+  --override optim.loss=mse \
+  --override optim.clip_grad=1.0 \
+  --override model.bottleneck_group_norm_groups=4 \
+  --override regularization.singular_value.enabled=true \
+  --override regularization.singular_value.weight=1e-4 \
+  --override regularization.singular_value.target_patterns='["conv_encoder","conv_decoder","split"]'
+```
+
+Those switches are intentionally opt-in. The default remains architecture-faithful, while giving you a direct way to compare:
+- pure L1 vs MSE vs SI-SNR objective
+- no norm vs bottleneck group norm
+- no spectral regularization vs low-rank singular-value penalty
+- unclipped vs clipped gradients
+- full epoch vs `train.max_batches` capped debugging runs
+
+For VM training, keep [train_paper.yaml](/Users/sahal/Desktop/ohms/code/ml-ai/HS-TasNet-NeutoneFX/src/hs_tasnet/config/train_paper.yaml) as the single ground-truth config and enable SVD and/or GN with CLI overrides.
+
+Weights & Biases logging:
+
+```bash
+pip install -e ".[wandb]"
+export WANDB_API_KEY=your_wandb_api_key
+hs-tasnet train --cfg src/hs_tasnet/config/train_paper.yaml \
+  --override logging.wandb.enabled=true \
+  --override logging.wandb.project=hs-tasnet \
+  --override logging.wandb.entity=your_entity
 ```
 
 Evaluation:
@@ -49,6 +97,18 @@ hs-tasnet infer --cfg src/hs_tasnet/config/infer.yaml \
   --override infer.checkpoint=artifacts/hs_tasnet.pt
 ```
 
+Realtime streaming benchmark (Python API):
+
+```python
+from hs_tasnet.infer.realtime import benchmark_streaming, build_streaming
+from hs_tasnet.models.hs_tasnet import HSTasNet
+
+model = HSTasNet()
+streamer = build_streaming(model.eval())
+metrics = benchmark_streaming(streamer, num_hops=200)
+print(metrics)  # avg_hop_ms, rtf, algorithmic_latency_ms
+```
+
 Export (Neutone):
 
 ```bash
@@ -62,6 +122,38 @@ Override any YAML value from the CLI:
 ```bash
 hs-tasnet train --cfg src/hs_tasnet/config/train.yaml --override train.batch_size=8
 ```
+
+Demucs-style optimizer overrides:
+
+```bash
+hs-tasnet train --cfg src/hs_tasnet/config/train_paper.yaml \
+  --override optim.optim=adam \
+  --override optim.lr=3e-4 \
+  --override optim.beta1=0.9 \
+  --override optim.beta2=0.999 \
+  --override optim.loss=l1
+```
+
+Example model-width overrides:
+
+```bash
+hs-tasnet train --cfg src/hs_tasnet/config/train.yaml \
+  --override model.wave_lstm_hidden=500 \
+  --override model.spec_lstm_hidden=500 \
+  --override model.shared_lstm_hidden=1000
+```
+
+Current spectral mask parameterization is magnitude-only:
+
+```bash
+hs-tasnet train --cfg src/hs_tasnet/config/train.yaml \
+  --override model.spec_mask_representation=magnitude
+```
+
+Config intent:
+- `src/hs_tasnet/config/train.yaml` is the lightweight baseline/dev config.
+- `src/hs_tasnet/config/train_paper.yaml` is the paper-faithful training config for real runs.
+- `src/hs_tasnet/config/paper_hs_tasnet.yaml` contains paper-faithful model architecture defaults.
 
 ## Artifacts
 
@@ -93,6 +185,8 @@ Config preset for VM paths:
 hs-tasnet train --cfg src/hs_tasnet/config/gcp.yaml
 ```
 
+`gcp.yaml` inherits paper-faithful model settings and is intended for real dataset training on VM.
+
 ## Vertex AI Custom Jobs
 
 Submit a training job from an orchestrator VM using Vertex AI (SDK-based orchestration):
@@ -108,7 +202,20 @@ python -m hs_tasnet.vertex_orchestrator \
   --dataset-uri gs://your-bucket/musdb18
 ```
 
+By default the orchestrator config (`config.yaml`) points training to:
+- `src/hs_tasnet/config/train_paper.yaml`
+
+`train_paper.yaml` uses `data.loader=musdb` and expects MUSDB at `/mnt/data/musdb18` inside the worker container (the Vertex worker populates this from `--dataset-uri`).
+By default MUSDB validation uses the training subset split (`data.musdb_val_subset=train`, `data.musdb_val_split=valid`); reserve `test` for final testing/evaluation jobs.
+If your MUSDB install does not expose a built-in `train/valid` split, the loader falls back to a deterministic 80/20 split on the training subset (`data.musdb_train_fraction=0.8`, `data.musdb_split_seed=42`).
+
 The worker container downloads the dataset from GCS, runs training, and writes the final checkpoint to `AIP_MODEL_DIR` so Vertex AI can register it in the Model Registry.
+Model artifacts are always written to a timestamped bundle directory under `AIP_MODEL_DIR`, for example:
+- `.../model/20260312_153012_vertex-run-1234/model.pt`
+- `.../model/20260312_153012_vertex-run-1234/config.yaml`
+
+To reduce worker disk usage during long Vertex runs, the paper training preset now saves checkpoints every 5 epochs and retains only the latest 2 checkpoint files locally. You can override this with `train.ckpt_every` and `train.max_checkpoints`.
+If you pass `--gcs-runs-uri`, the Vertex worker now syncs the run directory to GCS every epoch by default; set `vertex.train.gcs_sync_every_epochs` in the orchestrator config to use a different interval.
 
 Build and push the training image to Artifact Registry:
 
@@ -136,9 +243,23 @@ scripts/vertex_worker_pool.json
 
 For MUSDB (.stem.mp4) training, the container must include `musdb`, `stempeg`, and `ffmpeg`.
 
+To enable W&B in Vertex jobs, pass your API key and logging overrides from the orchestrator environment:
+
+```bash
+export WANDB_API_KEY=your_wandb_api_key
+python -m hs_tasnet.vertex_orchestrator \
+  --cfg src/hs_tasnet/config/train_paper.yaml \
+  --base-output-dir gs://realtime-stems-model-artifacts \
+  --override logging.wandb.enabled=true \
+  --override logging.wandb.project=hs-tasnet \
+  --override logging.wandb.entity=your_entity
+```
+
+`vertex_orchestrator` forwards `WANDB_API_KEY` from the orchestrator VM environment into the Vertex worker container when supported by the installed Vertex SDK.
+
 ## Vertex AI Evaluation Jobs
 
-Submit a separate evaluation job for a checkpoint stored in GCS and attach the result to a registered Vertex model:
+Submit a separate evaluation job for a checkpoint stored in GCS and write the results to a GCS evaluation directory:
 
 ```bash
 export PROJECT_ID=your-project
@@ -147,7 +268,6 @@ export STAGING_BUCKET=gs://your-bucket/staging
 export CONTAINER_URI=us-central1-docker.pkg.dev/your-project/your-repo/hs-tasnet:latest
 export MODEL_URI=gs://realtime-stems-model-artifacts/model
 export DATASET_URI=gs://your-bucket/musdb18
-export MODEL_RESOURCE_NAME=projects/123456789/locations/us-central1/models/987654321
 export EVAL_OUTPUT_URI=gs://your-bucket/evaluations/hs-tasnet-musdb18-test
 export SERVICE_ACCOUNT=vertex-jobs@your-project.iam.gserviceaccount.com
 
@@ -161,16 +281,16 @@ Mandatory environment variables for evaluation submission:
 - `CONTAINER_URI`
 - `MODEL_URI`
 - `DATASET_URI`
-- `MODEL_RESOURCE_NAME`
 - `EVAL_OUTPUT_URI`
 - `SERVICE_ACCOUNT`
 
-The eval worker downloads `model.pt` and `config.yaml` from `MODEL_URI`, runs checkpoint evaluation against the supplied dataset, writes:
+The eval worker downloads `model.pt` and `config.yaml` from `MODEL_URI`, runs checkpoint evaluation against the supplied dataset, and writes:
+If `MODEL_URI` contains timestamped bundles, the worker automatically picks the latest bundle directory.
 - `metrics.json`
 - `row_metrics.jsonl`
-- `model_registry_import.json`
+- `resolved_config.yaml`
 
-and then imports the aggregate metrics onto the registered model in Vertex Model Registry.
+The evaluation job does not import results into Vertex Model Registry; it only stores artifacts in your bucket.
 
 ## PR checker
 

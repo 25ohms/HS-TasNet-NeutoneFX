@@ -31,10 +31,14 @@ review = [
 gcp = [
   "google-cloud-storage>=2.16",
   "google-cloud-aiplatform>=1.56",
+  "wandb>=0.17",
 ]
 musdb = [
   "musdb>=0.4",
   "stempeg>=0.2",
+]
+wandb = [
+  "wandb>=0.17",
 ]
 
 [project.scripts]

@@ -31,6 +31,23 @@ def save_checkpoint(
     torch.save(payload, path)
 
 
+def prune_checkpoints(
+    run_dir: str | pathlib.Path,
+    keep_last: int | None,
+) -> None:
+    if keep_last is None:
+        return
+    keep_last = int(keep_last)
+    if keep_last <= 0:
+        raise ValueError("keep_last must be >= 1 when provided")
+
+    run_dir = pathlib.Path(run_dir)
+    checkpoints = sorted(run_dir.glob("checkpoint_epoch*.pt"))
+    stale_checkpoints = checkpoints[:-keep_last]
+    for checkpoint in stale_checkpoints:
+        checkpoint.unlink()
+
+
 def load_checkpoint(
     path: str | pathlib.Path,
     model: torch.nn.Module,

@@ -1,11 +1,22 @@
 from __future__ import annotations
 
+import math
 from typing import Tuple
 
 import torch
+import torch.nn.functional as F
 from torch import nn
 
 from hs_tasnet.utils.audio import istft, stft
+
+
+def build_group_norm(num_channels: int, groups: int) -> nn.Module:
+    if groups <= 0:
+        return nn.Identity()
+    effective_groups = min(groups, num_channels)
+    while effective_groups > 1 and num_channels % effective_groups != 0:
+        effective_groups -= 1
+    return nn.GroupNorm(effective_groups, num_channels)
 
 
 class SpectrogramEncoder(nn.Module):
@@ -54,37 +65,131 @@ class SpectrogramDecoder(nn.Module):
 class ConvEncoder(nn.Module):
     def __init__(self, in_channels: int, out_channels: int, kernel_size: int, stride: int):
         super().__init__()
-        self.conv = nn.Conv1d(in_channels, out_channels, kernel_size, stride=stride)
+        self.in_channels = in_channels
+        self.out_channels = out_channels
+        self.kernel_size = kernel_size
+        self.stride = stride
+        self.eps = 1e-8
 
-    def forward(self, audio: torch.Tensor) -> torch.Tensor:
+        self.relu_weight = nn.Parameter(torch.empty(out_channels, in_channels, kernel_size))
+        self.gate_weight = nn.Parameter(torch.empty(out_channels, in_channels, kernel_size))
+        self.reset_parameters()
+
+    def reset_parameters(self) -> None:
+        nn.init.kaiming_uniform_(self.relu_weight, a=math.sqrt(5))
+        nn.init.kaiming_uniform_(self.gate_weight, a=math.sqrt(5))
+
+    def encode_with_norms(self, audio: torch.Tensor) -> Tuple[torch.Tensor, torch.Tensor]:
         if audio.dim() == 2:
             audio = audio.unsqueeze(1)
-        return self.conv(audio)
+        if audio.shape[-1] < self.kernel_size:
+            raise ValueError(
+                f"Expected at least {self.kernel_size} samples for the waveform encoder, "
+                f"got {audio.shape[-1]}"
+            )
+
+        # TasNet encodes normalized overlapping waveform segments rather than applying
+        # a single unconstrained analysis convolution over the raw signal.
+        segments = audio.unfold(dimension=-1, size=self.kernel_size, step=self.stride)
+        norms = segments.pow(2).sum(dim=(1, 3), keepdim=True).sqrt().clamp_min(self.eps)
+        segments = segments / norms
+
+        bsz, channels, frames, window = segments.shape
+        segments = segments.permute(0, 2, 1, 3).reshape(bsz, frames, channels * window)
+
+        relu_weight = self.relu_weight.reshape(self.out_channels, channels * window)
+        gate_weight = self.gate_weight.reshape(self.out_channels, channels * window)
+
+        relu_branch = F.linear(segments, relu_weight)
+        gate_branch = F.linear(segments, gate_weight)
+        encoded = F.relu(relu_branch) * torch.sigmoid(gate_branch)
+        frame_norms = norms.squeeze(-1)
+        return encoded.transpose(1, 2).contiguous(), frame_norms
+
+    def forward(self, audio: torch.Tensor) -> torch.Tensor:
+        encoded, _ = self.encode_with_norms(audio)
+        return encoded
 
 
 class ConvDecoder(nn.Module):
     def __init__(self, in_channels: int, out_channels: int, kernel_size: int, stride: int):
         super().__init__()
         self.deconv = nn.ConvTranspose1d(in_channels, out_channels, kernel_size, stride=stride)
+        self.register_buffer("synthesis_window", torch.hann_window(kernel_size, periodic=False))
 
     def forward(self, features: torch.Tensor) -> torch.Tensor:
-        return self.deconv(features)
+        window = self.synthesis_window.to(device=features.device, dtype=self.deconv.weight.dtype)
+        weight = self.deconv.weight * window.view(1, 1, -1)
+        return F.conv_transpose1d(
+            features,
+            weight,
+            bias=self.deconv.bias,
+            stride=self.deconv.stride,
+            padding=self.deconv.padding,
+            output_padding=self.deconv.output_padding,
+            groups=self.deconv.groups,
+            dilation=self.deconv.dilation,
+        )
 
 
 class MemoryLSTMBlock(nn.Module):
-    def __init__(self, channels: int, hidden_size: int, num_layers: int = 1):
+    def __init__(
+        self,
+        channels: int,
+        hidden_size: int,
+        skip_mode: str = "identity",
+        skip_channels: int | None = None,
+    ):
         super().__init__()
-        self.lstm = nn.LSTM(channels, hidden_size, num_layers=num_layers, batch_first=True)
+        if skip_mode not in {"identity", "encoded"}:
+            raise ValueError(f"Unsupported skip mode '{skip_mode}'")
+        self.skip_mode = skip_mode
+        self.skip_channels = skip_channels if skip_channels is not None else channels
+
+        self.lstm1 = nn.LSTM(channels, hidden_size, num_layers=1, batch_first=True)
+        self.lstm2 = nn.LSTM(hidden_size, hidden_size, num_layers=1, batch_first=True)
         self.proj = nn.Linear(hidden_size, channels)
+        self.skip_proj = nn.Identity()
+        if self.skip_channels != channels:
+            self.skip_proj = nn.Linear(self.skip_channels, channels)
 
     def forward(
-        self, features: torch.Tensor, state: Tuple[torch.Tensor, torch.Tensor] | None = None
-    ) -> Tuple[torch.Tensor, Tuple[torch.Tensor, torch.Tensor]]:
+        self,
+        features: torch.Tensor,
+        state: (
+            Tuple[Tuple[torch.Tensor, torch.Tensor], Tuple[torch.Tensor, torch.Tensor]] | None
+        ) = None,
+        encoded_representation: torch.Tensor | None = None,
+    ) -> Tuple[
+        torch.Tensor,
+        Tuple[Tuple[torch.Tensor, torch.Tensor], Tuple[torch.Tensor, torch.Tensor]],
+    ]:
         # features: [B, C, T]
         x = features.transpose(1, 2)  # [B, T, C]
-        out, new_state = self.lstm(x, state)
-        out = self.proj(out).transpose(1, 2)
-        return out + features, new_state
+        state1 = state[0] if state is not None else None
+        state2 = state[1] if state is not None else None
+        out1, new_state1 = self.lstm1(x, state1)
+        out2, new_state2 = self.lstm2(out1, state2)
+        out = self.proj(out2).transpose(1, 2)
+
+        if self.skip_mode == "identity":
+            skip_source = features
+        else:
+            if encoded_representation is None:
+                raise ValueError("encoded_representation must be provided for skip_mode='encoded'")
+            skip_source = encoded_representation
+        skip = self.skip_proj(skip_source.transpose(1, 2)).transpose(1, 2)
+        return out + skip, (new_state1, new_state2)
+
+
+class BranchSplit(nn.Module):
+    def __init__(self, fused_channels: int, conv_channels: int, spec_channels: int):
+        super().__init__()
+        self.conv_proj = nn.Conv1d(fused_channels, conv_channels, kernel_size=1)
+        self.spec_proj = nn.Conv1d(fused_channels, spec_channels, kernel_size=1)
+
+    def forward(self, fused: torch.Tensor) -> Tuple[torch.Tensor, torch.Tensor]:
+        return self.conv_proj(fused), self.spec_proj(fused)
 
 
 class Fusion(nn.Module):
@@ -108,36 +213,30 @@ class Fusion(nn.Module):
         return torch.cat([conv_features, spec_features], dim=1)
 
 
-class MaskHead(nn.Module):
+class DomainMaskHead(nn.Module):
     def __init__(
         self,
-        fused_channels: int,
-        conv_channels: int,
-        spec_channels: int,
+        in_channels: int,
+        feature_channels: int,
         num_stems: int,
         activation: str = "sigmoid",
     ) -> None:
         super().__init__()
         self.num_stems = num_stems
-        self.conv_head = nn.Conv1d(fused_channels, num_stems * conv_channels, kernel_size=1)
-        self.spec_head = nn.Conv1d(fused_channels, num_stems * spec_channels, kernel_size=1)
+        self.head = nn.Conv1d(in_channels, num_stems * feature_channels, kernel_size=1)
         if activation == "tanh":
             self.activation = torch.tanh
         else:
             self.activation = torch.sigmoid
 
-    def forward(self, fused: torch.Tensor) -> Tuple[torch.Tensor, torch.Tensor]:
-        conv_mask = self.conv_head(fused)
-        spec_mask = self.spec_head(fused)
-        conv_mask = self.activation(conv_mask)
-        spec_mask = self.activation(spec_mask)
-        return conv_mask, spec_mask
+    def forward(self, features: torch.Tensor) -> torch.Tensor:
+        mask = self.head(features)
+        return self.activation(mask)
 
 
 class HybridCombiner(nn.Module):
-    def __init__(self, alpha: float = 0.5):
+    def __init__(self):
         super().__init__()
-        self.alpha = alpha
 
     def forward(self, conv_audio: torch.Tensor, spec_audio: torch.Tensor) -> torch.Tensor:
         # conv_audio/spec_audio: [B, S, T]
@@ -145,4 +244,4 @@ class HybridCombiner(nn.Module):
             min_len = min(conv_audio.shape[-1], spec_audio.shape[-1])
             conv_audio = conv_audio[..., :min_len]
             spec_audio = spec_audio[..., :min_len]
-        return self.alpha * conv_audio + (1 - self.alpha) * spec_audio
+        return conv_audio + spec_audio

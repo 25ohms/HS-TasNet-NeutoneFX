@@ -46,7 +46,7 @@ def infer(cfg: Dict) -> pathlib.Path:
     outputs = []
     with torch.no_grad():
         for seg in segments:
-            pred, _ = model(seg)
+            pred = model(seg)
             outputs.append(pred.cpu())
 
     pred = torch.cat(outputs, dim=-1)  # [1, S, T]
