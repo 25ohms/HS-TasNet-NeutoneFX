@@ -259,7 +259,7 @@ python -m hs_tasnet.vertex_orchestrator \
 
 ## Vertex AI Evaluation Jobs
 
-Submit a separate evaluation job for a checkpoint stored in GCS and attach the result to a registered Vertex model:
+Submit a separate evaluation job for a checkpoint stored in GCS and write the results to a GCS evaluation directory:
 
 ```bash
 export PROJECT_ID=your-project
@@ -268,7 +268,6 @@ export STAGING_BUCKET=gs://your-bucket/staging
 export CONTAINER_URI=us-central1-docker.pkg.dev/your-project/your-repo/hs-tasnet:latest
 export MODEL_URI=gs://realtime-stems-model-artifacts/model
 export DATASET_URI=gs://your-bucket/musdb18
-export MODEL_RESOURCE_NAME=projects/123456789/locations/us-central1/models/987654321
 export EVAL_OUTPUT_URI=gs://your-bucket/evaluations/hs-tasnet-musdb18-test
 export SERVICE_ACCOUNT=vertex-jobs@your-project.iam.gserviceaccount.com
 
@@ -282,17 +281,16 @@ Mandatory environment variables for evaluation submission:
 - `CONTAINER_URI`
 - `MODEL_URI`
 - `DATASET_URI`
-- `MODEL_RESOURCE_NAME`
 - `EVAL_OUTPUT_URI`
 - `SERVICE_ACCOUNT`
 
-The eval worker downloads `model.pt` and `config.yaml` from `MODEL_URI`, runs checkpoint evaluation against the supplied dataset, writes:
+The eval worker downloads `model.pt` and `config.yaml` from `MODEL_URI`, runs checkpoint evaluation against the supplied dataset, and writes:
 If `MODEL_URI` contains timestamped bundles, the worker automatically picks the latest bundle directory.
 - `metrics.json`
 - `row_metrics.jsonl`
-- `model_registry_import.json`
+- `resolved_config.yaml`
 
-and then imports the aggregate metrics onto the registered model in Vertex Model Registry.
+The evaluation job does not import results into Vertex Model Registry; it only stores artifacts in your bucket.
 
 ## PR checker
 

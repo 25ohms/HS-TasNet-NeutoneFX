@@ -25,11 +25,7 @@ vertex:
     cfg: src/hs_tasnet/config/eval.yaml
     dataset_uri: gs://realtime-stems/musdb18
     model_uri: gs://realtime-stems-model-artifacts/model
-    model_resource_name: projects/69797308691/locations/us-central1/models/6917439967199232000
     eval_output_uri: gs://realtime-stems-model-artifacts/evaluations/hs-tasnet-musdb18-test
-    evaluation_display_name: musdb18-test
-    metrics_schema_uri: null
-    metrics_schema_local_path: src/hs_tasnet/config/vertex_model_evaluation_metrics.yaml
     machine_type: g2-standard-4
     accelerator_type: NVIDIA_L4
     accelerator_count: 1

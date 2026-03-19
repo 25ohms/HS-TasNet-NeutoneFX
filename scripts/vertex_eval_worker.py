@@ -203,28 +203,6 @@ def _write_jsonl(path: Path, rows: List[Dict[str, Any]]) -> None:
             handle.write("\n")
 
 
-def _stage_metrics_schema(
-    local_output_dir: Path,
-    eval_output_uri: str,
-    metrics_schema_uri: str | None,
-    metrics_schema_local_path: str | None,
-) -> str | None:
-    if metrics_schema_uri:
-        return metrics_schema_uri
-    if not metrics_schema_local_path:
-        return None
-
-    source = Path(metrics_schema_local_path)
-    if not source.exists():
-        raise FileNotFoundError(f"Missing metrics schema at {source}")
-
-    staged_schema = local_output_dir / "metrics_schema.yaml"
-    staged_schema.parent.mkdir(parents=True, exist_ok=True)
-    staged_schema.write_text(source.read_text(encoding="utf-8"), encoding="utf-8")
-    sync_local_to_gcs(local_output_dir, eval_output_uri)
-    return None
-
-
 def main() -> None:
     parser = argparse.ArgumentParser()
     parser.add_argument("--project", required=True)
@@ -236,7 +214,6 @@ def main() -> None:
     parser.add_argument("--data-dir", default="/mnt/data/musdb18")
     parser.add_argument("--model-dir", default="/mnt/model")
     parser.add_argument("--output-dir", default="/mnt/eval")
-    parser.add_argument("--evaluation-display-name", default=None)
     parser.add_argument("--override", action="append")
     args = parser.parse_args()
 

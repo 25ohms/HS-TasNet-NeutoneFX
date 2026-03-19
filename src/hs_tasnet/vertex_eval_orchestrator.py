@@ -137,7 +137,6 @@ def main() -> None:
     parser.add_argument("--dataset-uri", default=None)
     parser.add_argument("--model-uri", default=None)
     parser.add_argument("--eval-output-uri", default=None)
-    parser.add_argument("--evaluation-display-name", default=None)
     parser.add_argument("--override", action="append")
     args = parser.parse_args()
 
@@ -182,11 +181,6 @@ def main() -> None:
         args.service_account
         or get_nested(orchestrator_cfg, "vertex", "service_account")
         or os.environ.get("SERVICE_ACCOUNT")
-    )
-    evaluation_display_name = (
-        args.evaluation_display_name
-        or get_nested(orchestrator_cfg, "vertex", "eval", "evaluation_display_name")
-        or os.environ.get("EVAL_DISPLAY_NAME")
     )
     network = (
         args.network
@@ -250,8 +244,6 @@ def main() -> None:
         "--eval-output-uri",
         eval_output_uri,
     ]
-    if evaluation_display_name:
-        worker_args.extend(["--evaluation-display-name", evaluation_display_name])
     if args.override:
         for override in args.override:
             worker_args.extend(["--override", override])
