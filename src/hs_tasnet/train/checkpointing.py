@@ -31,6 +31,13 @@ def save_checkpoint(
     torch.save(payload, path)
 
 
+def load_checkpoint_payload(
+    path: str | pathlib.Path,
+    map_location: str | torch.device = "cpu",
+) -> Dict[str, Any]:
+    return torch.load(path, map_location=map_location, weights_only=False)
+
+
 def prune_checkpoints(
     run_dir: str | pathlib.Path,
     keep_last: int | None,
@@ -56,7 +63,7 @@ def load_checkpoint(
     map_location: str | torch.device = "cpu",
     restore_rng: bool = True,
 ) -> Dict[str, Any]:
-    ckpt = torch.load(path, map_location=map_location)
+    ckpt = load_checkpoint_payload(path, map_location=map_location)
     model.load_state_dict(ckpt["model"])
     if optimizer is not None and ckpt.get("optimizer") is not None:
         optimizer.load_state_dict(ckpt["optimizer"])

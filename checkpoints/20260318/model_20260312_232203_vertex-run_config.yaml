@@ -1,0 +1,92 @@
+seed: 42
+run:
+  id: vertex-run
+  dir: /mnt/runs
+device:
+  name: cuda
+  use_amp: false
+logging:
+  tensorboard: true
+  wandb:
+    enabled: true
+    project: hs-tasnet
+    entity: sahalsajeer-watai
+model:
+  sample_rate: 44100
+  audio_channels: 1
+  num_stems: 4
+  stems:
+  - drums
+  - bass
+  - vocals
+  - other
+  window_size: 1024
+  hop_size: 512
+  enc_channels: 1024
+  wave_lstm_hidden: 500
+  spec_lstm_hidden: 500
+  shared_lstm_hidden: 1000
+  post_split_wave_lstm_hidden: 500
+  post_split_spec_lstm_hidden: 500
+  wave_num_blocks: 1
+  spec_num_blocks: 1
+  shared_num_blocks: 1
+  post_split_num_blocks: 1
+  fusion: concat
+  mask_activation: sigmoid
+  spec_mask_representation: magnitude
+data:
+  loader: musdb
+  sample_rate: 44100
+  audio_channels: 1
+  num_stems: 4
+  stems:
+  - drums
+  - bass
+  - vocals
+  - other
+  segment_seconds: 4.0
+  train_dir: null
+  val_dir: null
+  musdb_root: /mnt/data/musdb18
+  musdb_is_wav: false
+  musdb_val_subset: train
+  musdb_val_split: valid
+  musdb_fallback_to_ratio_split: true
+  musdb_train_fraction: 0.8
+  musdb_split_seed: 42
+  num_workers: 2
+  pin_memory: true
+  prefetch_factor: 2
+  tiny_dataset: false
+train:
+  batch_size: 4
+  epochs: 10
+  lr: 0.0001
+  grad_accum_steps: 1
+  grad_clip_norm: 1.0
+  metrics:
+  - l1
+  target_channel_policy: strict
+  log_every: 10
+  val_every: 1
+  ckpt_every: 1
+  max_steps: null
+val:
+  batch_size: 4
+eval:
+  checkpoint: null
+  batch_size: 4
+  metrics:
+  - l1
+  - sdr
+  target_channel_policy: strict
+infer:
+  checkpoint: null
+  input_path: null
+  output_dir: runs/infer
+  segment_seconds: 10.0
+export:
+  checkpoint: null
+  output_dir: export_hs_tasnet
+  trace_len: 2048

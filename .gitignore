@@ -14,6 +14,7 @@ dist/
 artifacts/
 runs/
 docs/
+audio/
 
 # Logs
 *.log

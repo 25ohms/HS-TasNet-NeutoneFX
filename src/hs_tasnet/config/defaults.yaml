@@ -109,6 +109,7 @@ infer:
   input_path: null
   output_dir: "runs/infer"
   segment_seconds: 10.0
+  input_channel_policy: "mono_downmix"  # strict | mono_downmix | first_channel
 
 export:
   checkpoint: null
